@@ -16,6 +16,7 @@
 from isaacsim import SimulationApp
 
 simulation_app = SimulationApp({"headless": False, "extra_args": ["--/app/useFabricSceneDelegate=0"]})
+# simulation_app = SimulationApp({"headless": False})
 import argparse
 import sys
 
@@ -29,6 +30,12 @@ from isaacsim.core.prims import DeformablePrim, SingleDeformablePrim
 from isaacsim.storage.native import get_assets_root_path
 from omni.physx.scripts import deformableUtils, physicsUtils
 from pxr import Gf, UsdGeom, UsdLux
+
+# Custom
+import time
+import omni.kit.commands
+from pxr import Sdf
+from isaacsim.core.api.simulation_context import SimulationContext
 
 # The example shows how to create and manipulate environments with deformable prim through the DeformablePrim
 parser = argparse.ArgumentParser()
@@ -45,7 +52,10 @@ if assets_root_path is None:
 class DeformableExample:
     def __init__(self):
         self._array_container = torch.Tensor
-        self.my_world = World(stage_units_in_meters=1.0, backend="torch", device="cuda")
+        self.my_world = World(stage_units_in_meters=1.0, backend='torch', device='cuda')
+        # omni.kit.commands.execute("ChangeProperty", prop_path="/physicsScene.physxScene:enableGPUDynamics", value=True, prev=False)
+        self._settings = carb.settings.get_settings()
+        # settings.set_bool("/physics/updateParticlesToUsd", True)
         self.stage = simulation_app.context.get_stage()
         self.num_envs = 10
         self.dimx = 5
@@ -55,13 +65,13 @@ class DeformableExample:
         self.makeEnvs()
 
     def makeEnvs(self):
+        
         for i in range(self.num_envs):
             init_loc = Gf.Vec3f(i * 2 - self.num_envs, 0.0, 0.0)
             env_scope = UsdGeom.Scope.Define(self.stage, "/World/Envs")
             env_path = "/World/Envs/Env" + str(i)
             env = UsdGeom.Xform.Define(self.stage, env_path)
             physicsUtils.set_or_add_translate_op(UsdGeom.Xformable(env), init_loc)
-
             mesh_path = env.GetPrim().GetPath().AppendChild("deformable")
             skin_mesh = UsdGeom.Mesh.Define(self.stage, mesh_path)
             tri_points, tri_indices = deformableMeshUtils.createTriangleMeshCube(8)
@@ -106,15 +116,17 @@ class DeformableExample:
         # rest_points are represented with respect to the env positions, but simulation_mesh_nodal_positions can be either global or local positions
         # However, because we don't currently consider subspace root path with World/SimulationContext initialization, the environment xforms are not identified
         # below and the following call will be positions w.r.t to a global frame.
-        self.initial_positions = self.deformableView.get_simulation_mesh_nodal_positions().cpu()
-        self.initial_velocities = self.deformableView.get_simulation_mesh_nodal_velocities().cpu()
+        # self.initial_positions = self.deformableView.get_simulation_mesh_nodal_positions().cpu()
+        # self.initial_velocities = self.deformableView.get_simulation_mesh_nodal_velocities().cpu()
         # print(self.initial_positions)
         # self.initial_positions = self.deformableView.get_simulation_mesh_rest_points().cpu()
         # for i in range(self.num_envs):
         #     self.initial_positions[i] += torch.tensor([i * 2, 0.0, 2.0])
         #     print(self.initial_positions[i])
+        pass
 
     def play(self):
+        counter = 0
         while simulation_app.is_running():
             if self.my_world.is_playing():
                 # deal with sim re-initialization after restarting sim
@@ -124,35 +136,37 @@ class DeformableExample:
 
             self.my_world.step(render=True)
 
-            if self.my_world.current_time_step_index == 200:
-                for i in range(self.num_envs):
-                    print(
-                        "deformable {} average height = {:.2f}".format(
-                            i, self.deformableView.get_simulation_mesh_nodal_positions()[i, :, 2].mean()
-                        )
-                    )
-                    print(
-                        "deformable {} average vertical speed = {:.2f}".format(
-                            i, self.deformableView.get_simulation_mesh_nodal_velocities()[i, :, 2].mean()
-                        )
-                    )
+            breakpoint()
+            
+            # if self.my_world.current_time_step_index == 200:
+            #     for i in range(self.num_envs):
+            #         print(
+            #             "deformable {} average height = {:.2f}".format(
+            #                 i, self.deformableView.get_simulation_mesh_nodal_positions()[i, :, 2].mean()
+            #             )
+            #         )
+            #         print(
+            #             "deformable {} average vertical speed = {:.2f}".format(
+            #                 i, self.deformableView.get_simulation_mesh_nodal_velocities()[i, :, 2].mean()
+            #             )
+            #         )
 
-            # reset some random environments
-            if self.my_world.current_time_step_index % 500 == 1:
-                indices = torch.tensor(
-                    np.random.choice(range(self.num_envs), self.num_envs // 2, replace=False), dtype=torch.long
-                )
-                new_positions = self.initial_positions[indices] + torch.tensor([0, 0, 5])
-                new_velocities = self.initial_velocities[indices] + torch.tensor([0, 0, 3])
-                self.deformableView.set_simulation_mesh_nodal_positions(new_positions, indices)
-                self.deformableView.set_simulation_mesh_nodal_velocities(new_velocities, indices)
-                updated_positions = self.deformableView.get_simulation_mesh_nodal_positions()
-                updated_velocities = self.deformableView.get_simulation_mesh_nodal_velocities()
-                for i in indices:
-                    print("reset index {} average height = {:.2f}".format(i, updated_positions[i, :, 2].mean()))
-                    print(
-                        "reset index {} average vertical speed = {:.2f}".format(i, updated_velocities[i, :, 2].mean())
-                    )
+            # # reset some random environments
+            # if self.my_world.current_time_step_index % 500 == 1:
+            #     indices = torch.tensor(
+            #         np.random.choice(range(self.num_envs), self.num_envs // 2, replace=False), dtype=torch.long
+            #     )
+            #     new_positions = self.initial_positions[indices] + torch.tensor([0, 0, 5])
+            #     new_velocities = self.initial_velocities[indices] + torch.tensor([0, 0, 3])
+            #     self.deformableView.set_simulation_mesh_nodal_positions(new_positions, indices)
+            #     self.deformableView.set_simulation_mesh_nodal_velocities(new_velocities, indices)
+            #     updated_positions = self.deformableView.get_simulation_mesh_nodal_positions()
+            #     updated_velocities = self.deformableView.get_simulation_mesh_nodal_velocities()
+            #     for i in indices:
+            #         print("reset index {} average height = {:.2f}".format(i, updated_positions[i, :, 2].mean()))
+            #         print(
+            #             "reset index {} average vertical speed = {:.2f}".format(i, updated_velocities[i, :, 2].mean())
+            #         )
 
         simulation_app.close()
 

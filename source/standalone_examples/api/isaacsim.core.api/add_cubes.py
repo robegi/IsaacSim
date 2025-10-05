@@ -60,7 +60,7 @@ my_world.scene.add_default_ground_plane()
 
 for i in range(5):
     my_world.reset()
-    for i in range(500):
+    for i in range(5000):
         my_world.step(render=True)
         print(cube_2.get_angular_velocity())
         print(cube_2.get_world_pose())
