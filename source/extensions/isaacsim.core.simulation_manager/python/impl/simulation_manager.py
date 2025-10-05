@@ -29,6 +29,9 @@ from pxr import PhysxSchema
 
 from .isaac_events import IsaacEvents
 
+# Custom imports
+import inspect
+
 
 class SimulationManager:
     """This class provide functions that take care of many time-related events such as
@@ -156,7 +159,7 @@ class SimulationManager:
             SimulationManager._backend = "torch"
             carb.log_warn("changing backend from numpy to torch since numpy backend cannot be used with GPU piplines")
         SimulationManager._physics_sim_view = omni.physics.tensors.create_simulation_view(
-            SimulationManager.get_backend(), stage_id=get_current_stage_id()
+            SimulationManager.get_backend(), stage_id=get_current_stage_id() 
         )
         SimulationManager._physics_sim_view.set_subspace_roots("/")
         SimulationManager._physics_sim_view__warp = omni.physics.tensors.create_simulation_view(
@@ -167,6 +170,7 @@ class SimulationManager:
         SimulationManager._message_bus.dispatch_event(IsaacEvents.SIMULATION_VIEW_CREATED.value, payload={})
         SimulationManager._simulation_view_created = True
         SimulationManager._message_bus.dispatch_event(IsaacEvents.PHYSICS_READY.value, payload={})
+        
 
     @classmethod
     def _get_backend_utils(cls) -> str:
@@ -286,10 +290,11 @@ class SimulationManager:
                     device_id = 0
             else:
                 SimulationManager._carb_settings.set_int("/physics/cudaDevice", int(parsed_device[1]))
-            SimulationManager._carb_settings.set_bool("/physics/suppressReadback", True)
+            # Run on GPU with fabric disabled
+            SimulationManager._carb_settings.set_bool("/physics/suppressReadback", False)
             SimulationManager.set_broadphase_type("GPU")
             SimulationManager.enable_gpu_dynamics(flag=True)
-            SimulationManager.enable_fabric(enable=True)
+            SimulationManager.enable_fabric(enable=False)
         elif "cpu" == val.lower():
             SimulationManager._carb_settings.set_bool("/physics/suppressReadback", False)
             # SimulationManager._carb_settings.set_int("/physics/cudaDevice", -1)
@@ -300,9 +305,10 @@ class SimulationManager:
 
     @classmethod
     def get_physics_sim_device(cls) -> str:
-        supress_readback = SimulationManager._carb_settings.get_as_bool("/physics/suppressReadback")
-        if (not SimulationManager._physics_scene_apis and supress_readback) or (
-            supress_readback
+        # suppress_readback = not SimulationManager._carb_settings.get_as_bool("/physics/suppressReadback")
+        suppress_readback = True
+        if (not SimulationManager._physics_scene_apis and suppress_readback) or (
+            suppress_readback
             and SimulationManager.get_broadphase_type() == "GPU"
             and SimulationManager.is_gpu_dynamics_enabled()
         ):

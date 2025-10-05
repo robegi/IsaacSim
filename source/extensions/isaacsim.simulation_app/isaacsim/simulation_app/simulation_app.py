@@ -203,6 +203,7 @@ class SimulationApp:
             ]:
                 if os.path.isfile(exp):
                     experience = exp
+                    # experience = f'{os.environ["EXP_PATH"]}/isaacsim.exp.full.kit'
                     break
         self.config.update({"experience": experience})
         if launch_config is not None:
