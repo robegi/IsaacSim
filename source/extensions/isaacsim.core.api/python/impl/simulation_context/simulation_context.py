@@ -704,6 +704,7 @@ class SimulationContext:
                 SimulationContext.render(self)
             else:
                 self._app.update()
+    
         else:
             if self.is_playing():
                 self._physics_context._step(current_time=self.current_time)
