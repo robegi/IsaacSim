@@ -54,6 +54,7 @@ includedirs {
 buildoptions("-fvisibility=default")
 libdirs {
     "%{root}/_build/target-deps/octomap/%{cfg.buildcfg}/lib64",
+    "%{root}/_build/target-deps/octomap/%{cfg.buildcfg}/lib",
 }
 filter {}
 
@@ -89,7 +90,7 @@ libdirs {
     extsbuild_dir .. "/omni.usd.core/bin",
     isaac_sim_extsbuild_dir .. "/isaacsim.util.debug_draw/bin",
 }
-links { "isaacsim.util.debug_draw.primitive_drawing", "isaacsim.asset.gen.omap.generator", "omni.usd" }
+links { "isaacsim.asset.gen.omap.generator", "omni.usd" }
 
 extra_usd_libs = { "usdUtils" }
 
@@ -106,7 +107,9 @@ filter { "system:linux" }
 disablewarnings { "error=pragmas" }
 libdirs {
     "%{root}/_build/target-deps/octomap/%{cfg.buildcfg}/lib64",
+    "%{root}/_build/target-deps/octomap/%{cfg.buildcfg}/lib",
 }
+links { "isaacsim.util.debug_draw.plugin" }
 filter {}
 
 filter { "system:windows" }
@@ -116,6 +119,7 @@ libdirs {
     "%{root}/_build/target-deps/tbb/lib/intel64/vc14",
     "%{root}/_build/target-deps/octomap/%{cfg.buildcfg}/lib",
 }
+links { "isaacsim.util.debug_draw.primitive_drawing" }
 filter {}
 
 links { "octomap", "octomath" }

@@ -60,7 +60,7 @@ CsRawData* ContactSensor::getRawData(size_t& size)
     }
     else
     {
-        size = 1;
+        size = m_size; // Return the actual number of contacts processed
     }
     return m_contactsRawData;
 }
@@ -102,7 +102,7 @@ CsReading ContactSensor::getSensorReading(const bool& getLatestValue)
 
 void ContactSensor::processRawContacts(CsRawData* rawContact, const size_t& size, const size_t& index, const double& time)
 {
-    CARB_PROFILE_ZONE(0, "Contact Sensor::processRawContacts");
+    CARB_PROFILE_ZONE(0, "[IsaacSim] Contact Sensor::processRawContacts");
     m_readingPair[index].value = 0.0f;
     m_readingPair[index].inContact = false;
     m_readingPair[index].time = static_cast<float>(time);
@@ -116,35 +116,41 @@ void ContactSensor::processRawContacts(CsRawData* rawContact, const size_t& size
     {
         usdrt::GfMatrix4d usdTransform =
             isaacsim::core::includes::pose::computeWorldXformNoCache(m_stage, m_usdrtStage, m_prim.GetPath());
-        const double* sensorPose = usdTransform.ExtractTranslation().GetArray();
-        pxr::GfVec3d pose(sensorPose[0], sensorPose[1], sensorPose[2]);
+        const usdrt::GfVec3d sensorPos = usdTransform.ExtractTranslation();
+        pxr::GfVec3d pos(sensorPos[0], sensorPos[1], sensorPos[2]);
         pxr::GfVec3d totalImpulse(0.0, 0.0, 0.0);
         for (size_t i = 0; i < size; ++i)
         {
             pxr::GfVec3d contactPoint(rawContact[i].position.x, rawContact[i].position.y, rawContact[i].position.z);
-            // CARB_LOG_WARN("contact Pose: %f %f %f", contactPoint[0], contactPoint[1], contactPoint[2]);
-            // CARB_LOG_WARN("sensor Pose: %f %f %f", pose[0],pose[1], pose[2]);
+            // CARB_LOG_WARN("contact Pos: %f %f %f", contactPoint[0], contactPoint[1], contactPoint[2]);
+            // CARB_LOG_WARN("sensor Pos: %f %f %f", pos[0],pos[1], pos[2]);
             auto d = pxr::GfVec3d(0.0f); // dp*rawContact->dt; Pending update on physics contact position being delayed
                                          // a few frames dp is the linear vel of the parent
-            auto distance = pose - contactPoint - d;
-            // pose.GetLength(), m_props.radius);
+            auto distance = pos - contactPoint - d;
+            // pos.GetLength(), m_props.radius);
 
             // Check if the distance from sensor to contact position is within sensor radius
             if (m_props.radius <= 0.0f || distance.GetLength() < static_cast<double>(m_props.radius))
             {
+                pxr::GfVec3d contactImpulse(rawContact[i].impulse.x, rawContact[i].impulse.y, rawContact[i].impulse.z);
                 m_readingPair[index].inContact = true;
-                // compute force from impulse (F = i/dt) and add to sensor output
-                totalImpulse += pxr::GfVec3d(static_cast<double>(rawContact[i].impulse.x),
-                                             static_cast<double>(rawContact[i].impulse.y),
-                                             static_cast<double>(rawContact[i].impulse.z));
-                // CARB_LOG_WARN(
-                //     "contact sensor value: %lu, %f, %lf", index, m_readingPair[index].value,
-                //     pxr::GfVec3d(rawContact[i].impulse.x, rawContact[i].impulse.y,
-                //     rawContact[i].impulse.z).GetLength());
+
+                // Determine if impulse should be inverted based on which body the sensor belongs to
+                // Following RigidContactView logic: invert if sensor's parent is body1
+                uint64_t sensorParentToken = asInt(m_parentPrim.GetPath());
+                bool shouldInvert = (sensorParentToken == rawContact[i].body1);
+
+                // Apply impulse along normal direction, with proper sign
+                if (shouldInvert)
+                {
+                    contactImpulse = -contactImpulse;
+                }
+                totalImpulse += contactImpulse;
             }
         }
-        m_readingPair[index].value =
-            std::min(static_cast<float>((totalImpulse.GetLength()) / rawContact[0].dt), m_props.maxThreshold);
+        // Calculate final force value
+        float forceValue = static_cast<float>((totalImpulse.GetLength()) / rawContact[0].dt);
+        m_readingPair[index].value = std::min(forceValue, m_props.maxThreshold);
 
         // if force reading is lower than the min threshold, override to no contact
         if (m_readingPair[index].value < m_props.minThreshold)
@@ -157,7 +163,7 @@ void ContactSensor::processRawContacts(CsRawData* rawContact, const size_t& size
 
 void ContactSensor::onPhysicsStep()
 {
-    CARB_PROFILE_ZONE(0, "ContactSensor::physics step");
+    CARB_PROFILE_ZONE(0, "[IsaacSim] ContactSensor::physics step");
     if (m_contactManagerPtr == nullptr)
     {
         CARB_LOG_ERROR("*** error: ContactManager not found");
@@ -254,7 +260,7 @@ bool ContactSensor::findValidParent()
 
 void ContactSensor::onComponentChange()
 {
-    CARB_PROFILE_ZONE(0, "Contact Sensor - component change");
+    CARB_PROFILE_ZONE(0, "[IsaacSim] Contact Sensor - component change");
     IsaacSensorComponentBase::onComponentChange();
     float sensorPeriod = 0.0f;
     float radius = 0.0f;

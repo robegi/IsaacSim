@@ -19,7 +19,7 @@ simulation_app = SimulationApp(launch_config={"headless": False})
 
 import os
 
-import omni.kit
+import carb.settings
 import omni.replicator.core as rep
 import omni.usd
 from omni.replicator.core import AnnotatorRegistry, Writer
@@ -31,7 +31,7 @@ NUM_FRAMES = 5
 
 # Save rgb image to file
 def save_rgb(rgb_data, file_name):
-    rgb_img = Image.fromarray(rgb_data, "RGBA")
+    rgb_img = Image.fromarray(rgb_data).convert("RGBA")
     rgb_img.save(file_name + ".png")
 
 
@@ -47,6 +47,7 @@ def cube_color_randomizer():
 class MyWriter(Writer):
     def __init__(self, rgb: bool = True):
         self._frame_id = 0
+        self.annotators = []
         if rgb:
             self.annotators.append(AnnotatorRegistry.get_annotator("rgb"))
         # Create writer output directory
@@ -69,6 +70,10 @@ rep.WriterRegistry.register(MyWriter)
 
 # Create a new stage with a dome light
 omni.usd.get_context().new_stage()
+
+# Set DLSS to Quality mode (2) for best SDG results , options: 0 (Performance), 1 (Balanced), 2 (Quality), 3 (Auto)
+carb.settings.get_settings().set("rtx/post/dlss/execMode", 2)
+
 stage = omni.usd.get_context().get_stage()
 dome_light = stage.DefinePrim("/World/DomeLight", "DomeLight")
 dome_light.CreateAttribute("inputs:intensity", Sdf.ValueTypeNames.Float).Set(900.0)

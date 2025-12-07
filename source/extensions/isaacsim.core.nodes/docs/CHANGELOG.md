@@ -1,4 +1,50 @@
 # Changelog
+
+## [3.4.3] - 2025-10-02
+### Fixed
+- Fixed Isaac Read World Pose node bug for extracting translation and orientation on Spark
+
+## [3.4.2] - 2025-08-29
+### Changed
+- Renamed CARB profiling zones to include [IsaacSim] prefix
+
+## [3.4.1] - 2025-08-22
+### Changed
+- Use SimulationManager instead of deprecated CoreNodes APIs for time related APIs
+
+## [3.4.0] - 2025-08-20
+### Changed
+- Remove workaround for /Render prim visibility and deleting deltas in stage open event
+
+## [3.3.2] - 2025-08-18
+### Fixed
+- Fix test golden values after timestamp fix
+
+## [3.3.1] - 2025-08-13
+### Fixed
+- Fix issue with inconsistent publishing rates due to upstream frame times nodes, a new render product frame time node is used .
+
+## [3.3.0] - 2025-08-11
+### Changed
+- Use device-generic memory buffer implementation to enable tensor API processing on the GPU in OgnIsaacComputeOdometry node
+
+## [3.2.17] - 2025-08-09
+### Changed
+- Use ISimulationManager instead of deprecated CoreNodes APIs for time related APIs
+
+## [3.2.16] - 2025-07-25
+### Fixed
+- Fix issue where multiple upstream connections to execIn were causing duplicate node executions
+- Fix issue where correct frame time was not returned by Simulation Time annotator
+
+## [3.2.15] - 2025-07-18
+### Fixed
+- Disable `xformOp` resetting when instantiating the articulation wrapper in the articulation state/controller nodes
+
+## [3.2.14] - 2025-07-17
+### Fixed
+- Fix issue where explicit render product destruction caused crashes on stage cleanup
+
 ## [3.2.13] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 3.2.12)

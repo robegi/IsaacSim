@@ -14,54 +14,160 @@
 # limitations under the License.
 
 import asyncio
-import functools
-import gc
-import time
-import types
-import unittest
 
-import carb
 import numpy as np
 import omni
-from isaacsim.core.utils.stage import open_stage_async
-from isaacsim.storage.native import get_assets_root_path_async
-from pxr import PhysxSchema, UsdGeom, UsdPhysics
+from isaacsim.core.simulation_manager import SimulationManager
+from isaacsim.core.utils.stage import add_reference_to_stage, open_stage_async
+from isaacsim.test.utils import TimedAsyncTestCase
+from pxr import UsdPhysics
 
 
-class ROS2TestCase(omni.kit.test.AsyncTestCase):
+class ROS2TestCase(TimedAsyncTestCase):
     """Base test class that automatically times all test methods.
 
-    This class extends omni.kit.test.AsyncTestCase to automatically print
-    the execution time of each test method. All test classes should inherit
-    from this instead of omni.kit.test.AsyncTestCase directly.
+    This class extends TimedAsyncTestCase to add ROS2 specific setup and teardown.
+    It also provides helper methods for creating and managing ROS2 resources with automatic cleanup.
     """
 
     async def setUp(self):
         """Set up test timing before each test method."""
-        self._test_start_time = time.time()
+        await super().setUp()
         self._timeline = omni.timeline.get_timeline_interface()
+
+        # Initialize lists to track ROS2 resources for automatic cleanup
+        self._ros2_nodes = []
+        self._ros2_publishers = []
+        self._ros2_subscribers = []
+
         import rclpy
 
         if not rclpy.ok():
             rclpy.init()
 
+        SimulationManager.set_backend("numpy")
+        SimulationManager.set_physics_sim_device("cpu")
+        SimulationManager.enable_fabric(enable=False)
+        await omni.kit.app.get_app().next_update_async()
+
+    def create_node(self, node_name):
+        """Create a ROS2 node and track it for automatic cleanup.
+
+        Args:
+            node_name: Name of the ROS2 node to create.
+
+        Returns:
+            The created ROS2 node.
+        """
+        import rclpy
+
+        node = rclpy.create_node(node_name)
+        self._ros2_nodes.append(node)
+        return node
+
+    def create_publisher(self, node, msg_type, topic_name, qos_profile=10):
+        """Create a ROS2 publisher and track it for automatic cleanup.
+
+        Args:
+            node: The ROS2 node to create the publisher on.
+            msg_type: The message type for the publisher.
+            topic_name: The topic name to publish to.
+            qos_profile: QoS profile for the publisher (default: 10).
+
+        Returns:
+            The created ROS2 publisher.
+        """
+        publisher = node.create_publisher(msg_type, topic_name, qos_profile)
+        self._ros2_publishers.append((node, publisher))
+        return publisher
+
+    def create_subscription(self, node, msg_type, topic_name, callback, qos_profile=10):
+        """Create a ROS2 subscription and track it for automatic cleanup.
+
+        Args:
+            node: The ROS2 node to create the subscription on.
+            msg_type: The message type for the subscription.
+            topic_name: The topic name to subscribe to.
+            callback: Callback function for received messages.
+            qos_profile: QoS profile for the subscription (default: 10).
+
+        Returns:
+            The created ROS2 subscription.
+        """
+        subscription = node.create_subscription(msg_type, topic_name, callback, qos_profile)
+        self._ros2_subscribers.append((node, subscription))
+        return subscription
+
+    def destroy_subscription(self, node, subscription):
+        """Manually destroy a subscription and remove it from tracking.
+
+        Args:
+            node: The ROS2 node that owns the subscription.
+            subscription: The subscription to destroy.
+        """
+        try:
+            node.destroy_subscription(subscription)
+            # Remove from tracking list to avoid double cleanup
+            if (node, subscription) in self._ros2_subscribers:
+                self._ros2_subscribers.remove((node, subscription))
+        except Exception as e:
+            print(f"Warning: Failed to destroy subscription: {e}")
+
+    def destroy_publisher(self, node, publisher):
+        """Manually destroy a publisher and remove it from tracking.
+
+        Args:
+            node: The ROS2 node that owns the publisher.
+            publisher: The publisher to destroy.
+        """
+        try:
+            node.destroy_publisher(publisher)
+            # Remove from tracking list to avoid double cleanup
+            if (node, publisher) in self._ros2_publishers:
+                self._ros2_publishers.remove((node, publisher))
+        except Exception as e:
+            print(f"Warning: Failed to destroy publisher: {e}")
+
     async def tearDown(self):
         self._timeline.stop()
         await omni.kit.app.get_app().next_update_async()
-        """Print test execution time after each test method."""
         while omni.usd.get_context().get_stage_loading_status()[2] > 0:
             print("tearDown, assets still loading, waiting to finish...")
             await asyncio.sleep(1.0)
+
+        # Clean up ROS2 resources in the correct order
+        # First destroy publishers
+        for node, publisher in self._ros2_publishers:
+            try:
+                node.destroy_publisher(publisher)
+            except Exception as e:
+                print(f"Warning: Failed to destroy publisher: {e}")
+
+        # Then destroy subscribers
+        for node, subscription in self._ros2_subscribers:
+            try:
+                node.destroy_subscription(subscription)
+            except Exception as e:
+                print(f"Warning: Failed to destroy subscription: {e}")
+
+        # Finally destroy nodes
+        for node in self._ros2_nodes:
+            try:
+                node.destroy_node()
+            except Exception as e:
+                print(f"Warning: Failed to destroy node: {e}")
+
+        # Clear the tracking lists
+        self._ros2_publishers.clear()
+        self._ros2_subscribers.clear()
+        self._ros2_nodes.clear()
 
         import rclpy
 
         if rclpy.ok():
             rclpy.shutdown()
 
-        test_duration = time.time() - self._test_start_time
-        test_name = self._testMethodName
-        print(f"\n[TEST TIMING] {test_name}: {test_duration:.3f} seconds")
-        gc.collect()
+        await super().tearDown()
 
 
 def set_translate(prim, new_loc):
@@ -121,32 +227,25 @@ async def add_cube(path, size, offset):
     return cubeGeom
 
 
-async def add_carter():
+async def add_carter(assets_root_path, prim_path="/Carter"):
     from pxr import Gf, PhysicsSchemaTools
 
-    assets_root_path = await get_assets_root_path_async()
-    if assets_root_path is None:
-        carb.log_error("Could not find Isaac Sim assets folder")
-        return
-    (result, error) = await open_stage_async(assets_root_path + "/Isaac/Robots/NVIDIA/Carter/carter_v1_physx_lidar.usd")
+    add_reference_to_stage(assets_root_path + "/Isaac/Robots/NVIDIA/Carter/carter_v1_physx_lidar.usd", prim_path)
     stage = omni.usd.get_context().get_stage()
-
     PhysicsSchemaTools.addGroundPlane(stage, "/World/groundPlane", "Z", 1500, Gf.Vec3f(0, 0, -0.25), Gf.Vec3f(0.5))
+    await omni.kit.app.get_app().next_update_async()
+    return prim_path
 
 
-async def add_carter_ros():
+async def add_carter_ros(assets_root_path, prim_path="/Carter"):
     from pxr import Gf, PhysicsSchemaTools
 
-    assets_root_path = await get_assets_root_path_async()
-    if assets_root_path is None:
-        carb.log_error("Could not find Isaac Sim assets folder")
-        return
-    (result, error) = await open_stage_async(assets_root_path + "/Isaac/Samples/ROS2/Robots/Carter_ROS.usd")
-
+    add_reference_to_stage(assets_root_path + "/Isaac/Samples/ROS2/Robots/Carter_ROS.usd", prim_path)
+    await omni.kit.app.get_app().next_update_async()
     # Disabling cameras by default
     import omni.graph.core as og
 
-    ros_cameras_graph_path = "/Carter/ROS_Cameras"
+    ros_cameras_graph_path = prim_path + "/ROS_Cameras"
 
     prims_to_disable = [
         ros_cameras_graph_path + "/isaac_create_render_product_left.inputs:enabled",
@@ -163,21 +262,16 @@ async def add_carter_ros():
     stage = omni.usd.get_context().get_stage()
 
     PhysicsSchemaTools.addGroundPlane(stage, "/World/groundPlane", "Z", 1500, Gf.Vec3f(0, 0, -0.25), Gf.Vec3f(0.5))
+    await omni.kit.app.get_app().next_update_async()
+    return prim_path
 
 
-async def add_nova_carter_ros():
-    assets_root_path = await get_assets_root_path_async()
-    if assets_root_path is None:
-        carb.log_error("Could not find Isaac Sim assets folder")
-        return
+async def add_nova_carter_ros(assets_root_path):
     (result, error) = await open_stage_async(assets_root_path + "/Isaac/Samples/ROS2/Robots/Nova_Carter_ROS.usd")
+    await omni.kit.app.get_app().next_update_async()
 
 
-async def add_franka():
-    assets_root_path = await get_assets_root_path_async()
-    if assets_root_path is None:
-        carb.log_error("Could not find Isaac Sim assets folder")
-        return
+async def add_franka(assets_root_path):
     (result, error) = await open_stage_async(assets_root_path + "/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd")
 
 

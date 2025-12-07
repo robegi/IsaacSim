@@ -1,4 +1,12 @@
 # Changelog
+## [8.0.26] - 2025-09-17
+### Fixed
+- Fixed bug in RMPflow collision sphere visualization where updating the robot position did not update the positions of visualized spheres.
+
+## [8.0.25] - 2025-07-15
+### Fixed
+- Use carb.log_warn instead of carb.log_warning
+
 ## [8.0.24] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 8.0.23)

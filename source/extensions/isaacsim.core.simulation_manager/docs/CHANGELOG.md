@@ -1,4 +1,51 @@
 # Changelog
+
+## [1.4.4] - 2025-10-09
+### Fixed
+- Change log level of invalid rational time error to WARN
+- Change log level of no data found for time warning to INFO
+
+## [1.4.3] - 2025-09-19
+### Fixed
+- Reduce verbosity of log messages
+
+## [1.4.2] - 2025-08-29
+### Changed
+- Renamed CARB profiling zones to include [IsaacSim] prefix
+
+## [1.4.1] - 2025-08-22
+### Fixed
+- Always return current time if no samples are stored, this occurs if you access the time storage before starting simulation
+
+## [1.4.0] - 2025-08-18
+### Changed
+- Backend time sampling is now done using a circular buffer that writes/reads rational time samples and properly works with FSD enabled/disabled.
+
+### Fixed
+- Duplicated/incorrect timestamp issue
+
+## [1.3.4] - 2025-08-14
+### Fixed
+- Do not change /physics/outputVelocitiesLocalSpace when fabric is enabled/disabled
+
+## [1.3.3] - 2025-08-08
+### Fixed
+- Update to event 2.0 system
+
+## [1.3.2] - 2025-07-16
+### Fixed
+- Check that PhysX Scene API instances are valid before using them
+
+## [1.3.1] - 2025-07-15
+### Fixed
+- Use carb.log_warn instead of carb.log_warning
+
+## [1.3.0] - 2025-07-14
+### Added
+- Refactor callback management system to use a dictionary of callback handles
+- Allow defult callbacks to be enabled/disabled individually
+- Add new callback management APIs: enable_all_default_callbacks, is_default_callback_enabled, get_default_callback_status
+
 ## [1.2.7] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 1.2.6)

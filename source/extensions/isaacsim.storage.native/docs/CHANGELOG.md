@@ -1,4 +1,34 @@
 # Changelog
+
+## [1.5.1] - 2025-10-10
+### Changed
+- Update assets path to production
+
+## [1.5.0] - 2025-10-07
+### Added
+- Added `resolve_asset_path_async` utility function to resolve asset paths by checking original location and falling back to asset root
+
+## [1.4.1] - 2025-09-18
+### Fixed
+- Update is_absolute_path function to also check http:// and https://
+
+## [1.4.0] - 2025-09-08
+### Added
+- Add `skip_check` optional argument to allow skipping the verification check step when resolving the asset root path
+
+## [1.3.0] - 2025-09-05
+### Added
+- Added the find_filtered_files and find_filtered_files_async utility to recursively search for USD files with configurable depth and pattern matching.
+- Added is_local_path utility to determine if a given path is a local file path or a remote (e.g., Omniverse) URL.
+
+## [1.2.9] - 2025-09-05
+### Fixed
+- Update assets path to staging
+
+## [1.2.8] - 2025-07-25
+### Fixed
+- Update assets path to production
+
 ## [1.2.7] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 1.2.6)

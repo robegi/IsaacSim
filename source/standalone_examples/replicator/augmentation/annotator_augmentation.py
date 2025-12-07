@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate augmented synthetic data from annotators
-"""
+"""Generate augmented synthetic data from annotators"""
 
 from isaacsim import SimulationApp
 
@@ -44,6 +43,9 @@ ENV_URL = "/Isaac/Environments/Grid/default_environment.usd"
 # Enable scripts
 carb.settings.get_settings().set_bool("/app/omni.graph.scriptnode/opt_in", True)
 
+# Set DLSS to Quality mode (2) for best SDG results , options: 0 (Performance), 1 (Balanced), 2 (Quality), 3 (Auto)
+carb.settings.get_settings().set("rtx/post/dlss/execMode", 2)
+
 
 # Illustrative augmentation switching red and blue channels in rgb data using numpy (CPU) and warp (GPU)
 def rgb_to_bgr_np(data_in):
@@ -63,7 +65,8 @@ def rgb_to_bgr_wp(data_in: wp.array3d(dtype=wp.uint8), data_out: wp.array3d(dtyp
 # Gaussian noise augmentation on depth data in numpy (CPU) and warp (GPU)
 def gaussian_noise_depth_np(data_in, sigma: float, seed: int):
     np.random.seed(seed)
-    return data_in + np.random.randn(*data_in.shape) * sigma
+    result = data_in.astype(np.float32) + np.random.randn(*data_in.shape) * sigma
+    return np.clip(result, 0, None).astype(data_in.dtype)
 
 
 rep.AnnotatorRegistry.register_augmentation(
@@ -89,7 +92,7 @@ rep.AnnotatorRegistry.register_augmentation(
 
 # Helper functions for writing images from annotator data
 def write_rgb(data, path):
-    rgb_img = Image.fromarray(data, mode="RGBA")
+    rgb_img = Image.fromarray(data).convert("RGBA")
     rgb_img.save(path + ".png")
 
 
@@ -102,7 +105,7 @@ def write_depth(data, path):
     data = np.nan_to_num(data, nan=np.nanmean(data), copy=False)
     normalized_array = (data - np.min(data)) / (np.max(data) - np.min(data))
     integer_array = (normalized_array * 255).astype(np.uint8)
-    depth_img = Image.fromarray(integer_array, mode="L")
+    depth_img = Image.fromarray(integer_array).convert("L")
     depth_img.save(path + ".png")
 
 

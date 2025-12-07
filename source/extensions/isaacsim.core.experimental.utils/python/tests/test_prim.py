@@ -14,13 +14,14 @@
 # limitations under the License.
 
 import isaacsim.core.experimental.utils.backend as backend_utils
+import isaacsim.core.experimental.utils.foundation as foundation_utils
 import isaacsim.core.experimental.utils.prim as prim_utils
 import isaacsim.core.experimental.utils.stage as stage_utils
 import omni.kit.stage_templates
 import omni.kit.test
 import usdrt
 from isaacsim.storage.native import get_assets_root_path_async
-from pxr import Usd
+from pxr import Sdf, Usd, UsdLux, UsdPhysics
 
 
 class TestPrim(omni.kit.test.AsyncTestCase):
@@ -37,16 +38,17 @@ class TestPrim(omni.kit.test.AsyncTestCase):
     # --------------------------------------------------------------------
 
     async def test_prim_variants(self):
-        assets_root_path = await get_assets_root_path_async()
-        assert assets_root_path is not None, "Could not find Isaac Sim's root assets path"
-
+        assets_root_path = await get_assets_root_path_async(skip_check=True)
         prim = stage_utils.add_reference_to_stage(
             usd_path=assets_root_path + "/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd",
             path="/franka",
         )
         # test cases
         # - collection
-        ground_truth = {"Mesh": ["Performance", "Quality"], "Gripper": ["AlternateFinger", "Default"]}
+        ground_truth = {
+            "Mesh": ["Performance", "Quality"],
+            "Gripper": ["AlternateFinger", "Default", "None", "Robotiq_2F_85"],
+        }
         self.assertEqual(prim_utils.get_prim_variant_collection(prim), ground_truth, "Wrong variant collection")
         # - get variants (default)
         ground_truth = [("Gripper", "Default"), ("Mesh", "Performance")]
@@ -84,7 +86,7 @@ class TestPrim(omni.kit.test.AsyncTestCase):
             stage_utils.define_prim(f"/World/A0/B0/C{i}", "Cube" if i % 2 else "Sphere")
         # test cases
         # - valid case
-        predicate = lambda path: prim_utils.get_prim_at_path(path).GetTypeName() == "Sphere"
+        predicate = lambda prim, path: prim.GetTypeName() == "Sphere"
         # -- max_depth: None
         # --- USD
         children = prim_utils.get_all_matching_child_prims("/World/A0", predicate=predicate)
@@ -135,20 +137,20 @@ class TestPrim(omni.kit.test.AsyncTestCase):
         # test cases
         # - valid case
         # -- USD
-        predicate = lambda path: prim_utils.get_prim_at_path(path).GetTypeName() == "Sphere"
+        predicate = lambda prim, path: prim.GetTypeName() == "Sphere"
         child = prim_utils.get_first_matching_child_prim("/", predicate=predicate, include_self=True)
         self.assertEqual(prim_utils.get_prim_path(child), "/World/A/B0")
         self.assertIsInstance(child, Usd.Prim)
         # -- USDRT/Fabric
         with backend_utils.use_backend("usdrt"):
-            predicate = lambda path: prim_utils.get_prim_at_path(path).GetTypeName() == "Cube"
+            predicate = lambda prim, path: prim.GetTypeName() == "Cube"
             child = prim_utils.get_first_matching_child_prim("/World", predicate=predicate, include_self=True)
         self.assertEqual(prim_utils.get_prim_path(child), "/World/A/B1")
         self.assertIsInstance(child, usdrt.Usd.Prim)
         # - no match
-        self.assertIsNone(prim_utils.get_first_matching_child_prim("/World/A", predicate=lambda path: False))
+        self.assertIsNone(prim_utils.get_first_matching_child_prim("/World/A", predicate=lambda *_: False))
         # - self-include
-        predicate = lambda path: prim_utils.get_prim_at_path(path).GetTypeName() == "Xform"
+        predicate = lambda prim, path: prim.GetTypeName() == "Xform"
         # -- include self
         child = prim_utils.get_first_matching_child_prim("/World", predicate=predicate, include_self=True)
         self.assertEqual(prim_utils.get_prim_path(child), "/World")
@@ -163,7 +165,7 @@ class TestPrim(omni.kit.test.AsyncTestCase):
         # test cases
         # - valid case
         # -- USD
-        predicate = lambda path: prim_utils.get_prim_at_path(path).GetTypeName() == "Xform"
+        predicate = lambda prim, path: prim.GetTypeName() == "Xform"
         parent = prim_utils.get_first_matching_parent_prim("/World/Cube/Sphere", predicate=predicate)
         self.assertEqual(prim_utils.get_prim_path(parent), "/World")
         self.assertIsInstance(parent, Usd.Prim)
@@ -173,12 +175,12 @@ class TestPrim(omni.kit.test.AsyncTestCase):
         self.assertEqual(prim_utils.get_prim_path(parent), "/World")
         self.assertIsInstance(parent, usdrt.Usd.Prim)
         # - no match
-        self.assertIsNone(prim_utils.get_first_matching_parent_prim("/World/Cube/Sphere", predicate=lambda path: False))
+        self.assertIsNone(prim_utils.get_first_matching_parent_prim("/World/Cube/Sphere", predicate=lambda *_: False))
         # - root prim (pseudo-root prim)
-        predicate = lambda path: path == "/"
+        predicate = lambda prim, path: path == "/"
         self.assertIsNone(prim_utils.get_first_matching_parent_prim("/World/Cube/Sphere", predicate=predicate))
         # - self-include
-        predicate = lambda path: prim_utils.get_prim_at_path(path).GetTypeName() == "Sphere"
+        predicate = lambda prim, path: prim.GetTypeName() == "Sphere"
         # -- include self
         parent = prim_utils.get_first_matching_parent_prim("/World/Cube/Sphere", predicate=predicate, include_self=True)
         self.assertEqual(prim_utils.get_prim_path(parent), "/World/Cube/Sphere")
@@ -186,3 +188,43 @@ class TestPrim(omni.kit.test.AsyncTestCase):
         self.assertIsNone(
             prim_utils.get_first_matching_parent_prim("/World/Cube/Sphere", predicate=predicate, include_self=False)
         )
+
+    async def test_has_api(self):
+        prim = stage_utils.define_prim("/World/A", "Cube")
+        UsdPhysics.RigidBodyAPI.Apply(prim)
+        UsdLux.LightAPI.Apply(prim)
+        # test cases
+        # - all
+        self.assertTrue(prim_utils.has_api("/World/A", UsdPhysics.RigidBodyAPI, test="all"))
+        self.assertTrue(prim_utils.has_api("/World/A", ["PhysicsRigidBodyAPI", UsdLux.LightAPI], test="all"))
+        self.assertFalse(
+            prim_utils.has_api("/World/A", ["PhysicsMassAPI", "PhysicsRigidBodyAPI", UsdLux.LightAPI], test="all")
+        )
+        # - any
+        self.assertTrue(prim_utils.has_api("/World/A", UsdPhysics.RigidBodyAPI, test="any"))
+        self.assertTrue(
+            prim_utils.has_api("/World/A", ["PhysicsMassAPI", "PhysicsRigidBodyAPI", UsdLux.LightAPI], test="any")
+        )
+        self.assertFalse(prim_utils.has_api("/World/A", "PhysicsMassAPI", test="any"))
+        # - none
+        self.assertTrue(prim_utils.has_api("/World/A", "PhysicsMassAPI", test="none"))
+        self.assertFalse(prim_utils.has_api("/World/A", UsdPhysics.RigidBodyAPI, test="none"))
+        self.assertFalse(
+            prim_utils.has_api("/World/A", ["PhysicsMassAPI", "PhysicsRigidBodyAPI", UsdLux.LightAPI], test="none")
+        )
+        # exceptions
+        self.assertRaises(ValueError, prim_utils.has_api, "/World/A", "UnexistingAPI", test="unknown")
+
+    async def test_attributes(self):
+        stage_utils.define_prim(path := "/World/A", "Xform")
+        for i, format_ in enumerate([str, Sdf.ValueTypeNames, usdrt.Sdf.ValueTypeNames]):
+            for j, value_type_name in enumerate(foundation_utils.get_value_type_names(format=format_)):
+                for backend in ["usd", "usdrt", "fabric"]:
+                    with backend_utils.use_backend(backend):
+                        name = f"{backend}_attr_{i}_{j}"
+                        attribute = prim_utils.create_prim_attribute(path, name=name, type_name=value_type_name)
+                        self.assertIsInstance(attribute, Usd.Attribute if backend == "usd" else usdrt.Usd.Attribute)
+                        attribute.Get()
+                        # exceptions
+                        with self.assertRaises(RuntimeError):
+                            prim_utils.create_prim_attribute(path, name=name, type_name=value_type_name, exist_ok=False)

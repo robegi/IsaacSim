@@ -1,4 +1,21 @@
 # Changelog
+
+## [0.4.3] - 2025-10-02
+### Fixed
+- Orientation bug for contact and IMU sensor
+
+## [0.4.2] - 2025-09-23
+### Changed
+- Fixed contact sensor implementation
+
+## [0.4.1] - 2025-08-29
+### Changed
+- Renamed CARB profiling zones to include [IsaacSim] prefix
+
+## [0.4.0] - 2025-08-07
+### Changed
+- Use device-generic memory buffer implementation to enable tensor API processing on the GPU for IMU sensor
+
 ## [0.3.27] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 0.3.26)

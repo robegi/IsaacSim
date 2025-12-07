@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0] - 2025-09-18
+### Added
+- Add support for input data expressed as basic Python types (bool, int, float)
+
+## [0.3.0] - 2025-07-16
+### Added
+- Add surface and volume deformable physics materials
+
 ## [0.2.1] - 2025-06-07
 ### Changed
 - Set test timeout to 900 seconds

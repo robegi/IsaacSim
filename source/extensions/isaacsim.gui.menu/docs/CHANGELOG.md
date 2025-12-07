@@ -1,4 +1,30 @@
 # Changelog
+
+## [2.4.4] - 2025-09-19
+### Changed
+- Update test to use isaacsim.test.utils for image capture and comparison
+
+## [2.4.3] - 2025-09-07
+### Changed
+- Update test settings
+
+## [2.4.2] - 2025-08-28
+### Changed
+- Add delay to menu click for environment test
+
+## [2.4.1] - 2025-08-27
+### Fixed
+- Fix the broken documentation links
+
+## [2.4.0] - 2025-08-21
+### Changed
+- Moved help menu links to isaacsim.gui.menu from isaacsim.app.setup
+
+## [2.3.17] - 2025-07-22
+### Changed
+- Add delay to menu click for sensor tests
+- Create new stage rather than clear stage for sensor tests
+
 ## [2.3.16] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 1.1.8)

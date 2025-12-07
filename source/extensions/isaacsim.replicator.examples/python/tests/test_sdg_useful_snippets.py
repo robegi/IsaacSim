@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import carb.settings
 import omni.kit
 import omni.usd
-
-from .common import validate_folder_contents
+from isaacsim.test.utils.file_validation import validate_folder_contents
 
 
 class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
@@ -24,6 +24,7 @@ class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
         await omni.kit.app.get_app().next_update_async()
         omni.usd.get_context().new_stage()
         await omni.kit.app.get_app().next_update_async()
+        self.original_dlss_exec_mode = carb.settings.get_settings().get("rtx/post/dlss/execMode")
 
     async def tearDown(self):
         omni.usd.get_context().close_stage()
@@ -31,6 +32,7 @@ class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
         # In some cases the test will end before the asset is loaded, in this case wait for assets to load
         while omni.usd.get_context().get_stage_loading_status()[2] > 0:
             await omni.kit.app.get_app().next_update_async()
+        carb.settings.get_settings().set("rtx/post/dlss/execMode", self.original_dlss_exec_mode)
 
     async def test_sdg_snippet_multi_camera(self):
         import os
@@ -46,7 +48,7 @@ class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
 
         # Save rgb image to file
         def save_rgb(rgb_data, file_name):
-            rgb_img = Image.fromarray(rgb_data, "RGBA")
+            rgb_img = Image.fromarray(rgb_data).convert("RGBA")
             rgb_img.save(file_name + ".png")
 
         # Randomize cube color every frame using a replicator randomizer
@@ -60,6 +62,7 @@ class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
         class MyWriter(Writer):
             def __init__(self, rgb: bool = True):
                 self._frame_id = 0
+                self.annotators = []
                 if rgb:
                     self.annotators.append(AnnotatorRegistry.get_annotator("rgb"))
                 # Create writer output directory
@@ -161,7 +164,7 @@ class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
 
         # Util function to save rgb annotator data
         def write_rgb_data(rgb_data, file_path):
-            rgb_img = Image.fromarray(rgb_data, "RGBA")
+            rgb_img = Image.fromarray(rgb_data).convert("RGBA")
             rgb_img.save(file_path + ".png")
 
         # Util function to save semantic segmentation annotator data
@@ -169,8 +172,8 @@ class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
             id_to_labels = sem_data["info"]["idToLabels"]
             with open(file_path + ".json", "w") as f:
                 json.dump(id_to_labels, f)
-            sem_image_data = np.frombuffer(sem_data["data"], dtype=np.uint8).reshape(*sem_data["data"].shape, -1)
-            sem_img = Image.fromarray(sem_image_data, "RGBA")
+            sem_image_data = sem_data["data"]
+            sem_img = Image.fromarray(sem_image_data).convert("RGBA")
             sem_img.save(file_path + ".png")
 
         # Create a new stage with the default ground plane
@@ -182,6 +185,9 @@ class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
 
         # Setting capture on play to False will prevent the replicator from capturing data each frame
         carb.settings.get_settings().set("/omni/replicator/captureOnPlay", False)
+
+        # Set DLSS to Quality mode (2) for best SDG results , options: 0 (Performance), 1 (Balanced), 2 (Quality), 3 (Auto)))))))))
+        carb.settings.get_settings().set("rtx/post/dlss/execMode", 2)
 
         # Create a camera and render product to collect the data from
         cam = rep.create.camera(position=(5, 5, 5), look_at=(0, 0, 0))
@@ -385,6 +391,9 @@ class TestSDGUsefulSnippets(omni.kit.test.AsyncTestCase):
             # Create a new stage with the assets
             setup_stage()
             stage = omni.usd.get_context().get_stage()
+
+            # Set DLSS to Quality mode (2) for best SDG results , options: 0 (Performance), 1 (Balanced), 2 (Quality), 3 (Auto))))))))))))))))
+            carb.settings.get_settings().set("rtx/post/dlss/execMode", 2)
 
             # Set replicator settings (capture only on request and enable motion blur)
             carb.settings.get_settings().set("/omni/replicator/captureOnPlay", False)

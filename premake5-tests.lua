@@ -20,7 +20,10 @@ function define_test_startup_experience(app_name, kit_file, extra_args)
     local kit_file = kit_file or app_name
     define_test_experience(app_name, {
         config_path = "../apps/" .. kit_file .. ".kit",
-        extra_args = '--ext-folder "' .. script_dir_token .. '/../apps" ' .. extra_args,
+        extra_args = '--ext-folder "' .. script_dir_token .. '/../exts" ' ..
+                     '--ext-folder "' .. script_dir_token .. '/../extscache" ' ..
+                     '--ext-folder "' .. script_dir_token .. '/../extsDeprecated" ' ..
+                     '--ext-folder "' .. script_dir_token .. '/../apps" ' .. extra_args,
     })
 end
 
@@ -38,22 +41,22 @@ function create_tests()
         {
             name = "tests-startup.main",
             kit_file = "isaacsim.exp.full",
-            extra_args = "--/app/quitAfter=500 --/app/file/ignoreUnsavedOnExit=1",
+            extra_args = "--/app/quitAfter=100 --/app/file/ignoreUnsavedOnExit=1",
         },
         {
             name = "tests-startup.streaming",
             kit_file = "isaacsim.exp.full.streaming",
-            extra_args = "--no-window --/app/quitAfter=500 --/app/file/ignoreUnsavedOnExit=1",
+            extra_args = "--no-window --/app/quitAfter=100 --/app/file/ignoreUnsavedOnExit=1",
         },
         {
             name = "tests-startup.extscache",
             kit_file = "isaacsim.exp.full",
-            extra_args = "--no-window --/app/quitAfter=500 --/app/extensions/registryEnabled=0 --/app/file/ignoreUnsavedOnExit=1",
+            extra_args = "--no-window --/app/quitAfter=100 --/app/extensions/registryEnabled=0 --/app/file/ignoreUnsavedOnExit=1",
         },
         {
             name = "tests-startup.xr.vr",
             kit_file = "isaacsim.exp.base.xr.vr",
-            extra_args = "--no-window --/app/quitAfter=500 --/app/file/ignoreUnsavedOnExit=1",
+            extra_args = "--no-window --/app/quitAfter=100 --/app/file/ignoreUnsavedOnExit=1",
         },
     })
 
@@ -115,6 +118,18 @@ function create_tests()
         {
             "tests-nativepython-testing-isaacsim.simulation_app.test_createstage_config",
             "standalone_examples/testing/isaacsim.simulation_app/test_createstage_config.py",
+        },
+        {
+            "tests-nativepython-testing-isaacsim.simulation_app.test_multiprocess",
+            "standalone_examples/testing/isaacsim.simulation_app/test_multiprocess.py",
+        },
+        {
+            "tests-nativepython-testing-isaacsim.simulation_app.test_viewport_ready",
+            "standalone_examples/testing/isaacsim.simulation_app/test_viewport_ready.py",
+        },
+        {
+            "tests-nativepython-testing-isaacsim.simulation_app.test_headless_no_rendering",
+            "standalone_examples/testing/isaacsim.simulation_app/test_headless_no_rendering.py",
         },
     }
 
@@ -188,12 +203,21 @@ function create_tests()
 
     -- isaacsim.sensors.camera
     python_sample_test(
+        "tests-nativepython-isaacsim.sensors.camera.camera_add_depth_sensor",
+        "standalone_examples/api/isaacsim.sensors.camera/camera_add_depth_sensor.py"
+    )
+    python_sample_test(
         "tests-nativepython-isaacsim.sensors.camera.camera_opencv_fisheye",
         "standalone_examples/api/isaacsim.sensors.camera/camera_opencv_fisheye.py"
     )
     python_sample_test(
         "tests-nativepython-isaacsim.sensors.camera.camera_opencv_pinhole",
         "standalone_examples/api/isaacsim.sensors.camera/camera_opencv_pinhole.py"
+    )
+    python_sample_test(
+        "tests-nativepython-isaacsim.sensors.camera.camera_pre_isp_pipeline",
+        "standalone_examples/api/isaacsim.sensors.camera/camera_pre_isp_pipeline.py",
+        "--draw-output"
     )
     python_sample_test(
         "tests-nativepython-isaacsim.sensors.camera.camera_ros",
@@ -218,13 +242,27 @@ function create_tests()
 
     -- isaacsim.sensors.rtx
     python_sample_test(
+        "tests-nativepython-isaacsim.sensors.rtx.inspect_lidar_metadata",
+        "standalone_examples/api/isaacsim.sensors.rtx/inspect_lidar_metadata.py",
+        "--test"
+    )
+    python_sample_test(
+        "tests-nativepython-isaacsim.sensors.rtx.inspect_radar_metadata",
+        "standalone_examples/api/isaacsim.sensors.rtx/inspect_radar_metadata.py",
+        "--test"
+    )
+    python_sample_test(
+        "tests-nativepython-isaacsim.sensors.rtx.resolve_object_ids_from_gmo",
+        "standalone_examples/api/isaacsim.sensors.rtx/resolve_object_ids_from_gmo.py"
+    )
+    python_sample_test(
         "tests-nativepython-isaacsim.sensors.rtx.rotating_lidar_rtx",
         "standalone_examples/api/isaacsim.sensors.rtx/rotating_lidar_rtx.py",
         "--test"
     )
     python_sample_test(
-        "tests-nativepython-isaacsim.sensors.rtx.inspect_lidar_metadata",
-        "standalone_examples/api/isaacsim.sensors.rtx/inspect_lidar_metadata.py",
+        "tests-nativepython-isaacsim.sensors.rtx.specify_non_visual_materials",
+        "standalone_examples/api/isaacsim.sensors.rtx/specify_non_visual_materials.py",
         "--test"
     )
 
@@ -406,6 +444,10 @@ function create_tests()
             "standalone_examples/replicator/amr_navigation.py",
             "--num_frames 3 --env_interval 1 --use_temp_rp",
         },
+        {
+            "tests-nativepython-replicator.cosmos_writer_warehouse",
+            "standalone_examples/replicator/cosmos_writer_warehouse.py",
+        },
     }
 
     for _, test in ipairs(replicator_tests) do
@@ -476,6 +518,11 @@ function create_tests()
             "standalone_examples/testing/isaacsim.ros2.bridge/test_camera_tf_delay.py",
             "--test-steps=50",
         },
+        {
+            "tests-nativepython-testing-isaacsim.ros2.bridge.test_publish_camera_data",
+            "standalone_examples/testing/isaacsim.ros2.bridge/test_publish_camera_data.py",
+            "--test-steps=5",
+        }
     }
 
     for _, test in ipairs(ros2_bridge_tests) do
@@ -545,12 +592,21 @@ function create_tests()
             "/standalone_examples/api/isaacsim.replicator.behavior/behaviors.py",
         },
         {
-            "tests-nativepython-isaacsim.replicator.examples.cosmos_writer_warehouse",
-            "standalone_examples/api/isaacsim.replicator.examples/cosmos_writer_warehouse.py",
+            "tests-nativepython-isaacsim.replicator.examples.cosmos_writer_simple",
+            "standalone_examples/api/isaacsim.replicator.examples/cosmos_writer_simple.py",
         },
         {
             "tests-nativepython-isaacsim.replicator.examples.custom_event_and_write",
             "/standalone_examples/api/isaacsim.replicator.examples/custom_event_and_write.py",
+        },
+        {
+            "tests-nativepython-testing-isaacsim.replicator.examples.ar_capture_pipeline",
+            "/standalone_examples/testing/isaacsim.replicator.examples/ar_capture_pipeline.py",
+        },
+        {
+            "tests-nativepython-testing-isaacsim.replicator.examples.ar_capture_pipeline_gpu",
+            "/standalone_examples/testing/isaacsim.replicator.examples/ar_capture_pipeline.py",
+            "--gpu_dynamics",
         },
         {
             "tests-nativepython-testing-isaacsim.replicator.examples.motion_blur_short",
@@ -583,6 +639,7 @@ function create_tests()
         {
             "tests-nativepython-isaacsim.replicator.examples.simready_assets_sdg",
             "standalone_examples/api/isaacsim.replicator.examples/simready_assets_sdg.py",
+            "--num_scenarios 2",
         },
         {
             "tests-nativepython-isaacsim.replicator.examples.multi_camera",
@@ -725,6 +782,11 @@ function create_tests()
             "tests-standalone_benchmarks-benchmark_single_view_depth_sensor",
             "standalone_examples/benchmarks/benchmark_single_view_depth_sensor.py",
             "--num-frames 10 --num-cameras 2",
+        },
+        {
+            "tests-standalone_benchmarks-benchmark_robots_humanoid",
+            "standalone_examples/benchmarks/benchmark_robots_humanoid.py",
+            "--num-frames 10 --num-robots 2",
         },
     }
 

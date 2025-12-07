@@ -79,7 +79,7 @@ function setup_isaacsim_folder_links()
     }
 
     if not os.isdir(root .. "/_build/PACKAGE-LICENSES") then os.mkdir(root .. "/_build/PACKAGE-LICENSES") end
-    
+
 
     repo_build.prebuild_link {
         { "source/python_packages", "_build/%{platform}/%{config}/python_packages" },
@@ -105,7 +105,6 @@ function setup_isaacsim_folder_links()
         { "source/scripts/run_tests.py", "_build/%{platform}/%{config}" },
         { "source/scripts/test_config.json", "_build/%{platform}/%{config}/tests" },
         { "source/scripts/warmup${shell_ext}", "_build/%{platform}/%{config}" },
-        { "source/scripts/isaac-sim.docker*${shell_ext}", "_build/%{platform}/%{config}" },
         { "source/scripts/clear_caches*${shell_ext}", "_build/%{platform}/%{config}" },
         { "source/scripts/post_install*${shell_ext}", "_build/%{platform}/%{config}" },
         { "source/scripts/vscode/%{platform}", "_build/%{platform}/%{config}/.vscode" },
@@ -150,12 +149,20 @@ function get_git_info(params, env_var)
     return str
 end
 
+
 function generate_version_header()
     shortSha = get_git_info("rev-parse --short HEAD", "ISAACSIM_BUILD_SHA")
     commitDate = get_git_info('show -s --format="%ad"', "ISAACSIM_BUILD_DATE")
-    branch = get_git_info("rev-parse --abbrev-ref HEAD", "ISAACSIM_BUILD_BRANCH")
+
+    local branch
+    branch = branch or get_git_info("rev-parse --abbrev-ref HEAD", "ISAACSIM_BUILD_BRANCH")
+
+    -- Always print the final branch value
+    print("ISAACSIM_BUILD_BRANCH " .. (branch or "UNKNOWN"))
+
     version = get_git_info("show HEAD:VERSION", "ISAACSIM_BUILD_VERSION")
     repo = get_git_info("config --get remote.origin.url", "ISAACSIM_BUILD_REPO")
+    repo = string.gsub(repo, "(https://)([^@]+)@", "%1")
     print(
         "Generating version header file: "
             .. branch
@@ -216,16 +223,35 @@ function group_apps(kit)
 
     define_local_experience("isaac-sim", "isaacsim.exp.full")
     define_local_experience("isaac-sim.fabric", "isaacsim.exp.full.fabric")
-    define_local_experience("isaac-sim.selector", "isaacsim.exp.selector")
-    define_local_experience("isaac-sim.streaming", "isaacsim.exp.full.streaming", "--no-window ")
-    define_local_experience("isaac-sim.xr.vr", "isaacsim.exp.base.xr.vr")
+    define_local_experience("isaac-sim.compatibility_check", "isaacsim.exp.compatibility_check")
+    if os.hostarch() == "x86_64" then
+        define_local_experience("isaac-sim.selector", "isaacsim.exp.selector")
+        define_local_experience("isaac-sim.streaming", "isaacsim.exp.full.streaming", "--no-window ")
+        define_local_experience("isaac-sim.xr.vr", "isaacsim.exp.base.xr.vr")
+    end
     define_local_experience(
         "isaac-sim.action_and_event_data_generation",
         "isaacsim.exp.action_and_event_data_generation.full"
     )
 end
 
+
+-- Check for system NVCC first, but only on ARM64 (aarch64) where glibc compatibility issues exist
+local osHostArch = os.hostarch()
+local osTarget = os.target()
+local systemNvccPath = "/usr/local/cuda/bin/nvcc"
 nvccPath = path.getabsolute("_build/target-deps/cuda/bin/nvcc")
+cudaIncludePath = path.getabsolute("_build/target-deps/cuda/include")
+cudaLibPathLinux = path.getabsolute("_build/target-deps/cuda/lib64")
+if osTarget == "linux" and os.isfile(systemNvccPath) and (osHostArch == "aarch64" or osHostArch == "arm64" or osHostArch == "ARM64") then
+    nvccPath = systemNvccPath
+    cudaIncludePath = "/usr/local/cuda/include"
+    cudaLibPathLinux = "/usr/local/cuda/lib64"
+end
+print("Using NVCC binary: " .. nvccPath)
+print("Using CUDA includes directory: " .. cudaIncludePath)
+print("Using CUDA libs directory: " .. cudaLibPathLinux)
+
 filter { "system:windows" }
 nvccHostCompilerVS = path.getabsolute("_build/host-deps/msvc/VC")
 filter {}

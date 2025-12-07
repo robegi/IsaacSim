@@ -19,6 +19,7 @@ from isaacsim import SimulationApp
 
 simulation_app = SimulationApp(launch_config={"headless": False})
 
+import carb.settings
 import omni.replicator.core as rep
 import omni.usd
 from isaacsim.core.utils.semantics import add_labels
@@ -31,6 +32,7 @@ class MyWriter(Writer):
     def __init__(self, camera_params: bool = True, bounding_box_3d: bool = True):
         # Organize data from render product perspective (legacy, annotator, renderProduct)
         self.data_structure = "renderProduct"
+        self.annotators = []
         if camera_params:
             self.annotators.append(rep.annotators.get("camera_params"))
         if bounding_box_3d:
@@ -50,6 +52,9 @@ def run_example():
     # Create a new stage and disable capture on play
     omni.usd.get_context().new_stage()
     rep.orchestrator.set_capture_on_play(False)
+
+    # Set DLSS to Quality mode (2) for best SDG results , options: 0 (Performance), 1 (Balanced), 2 (Quality), 3 (Auto)
+    carb.settings.get_settings().set("rtx/post/dlss/execMode", 2)
 
     # Setup stage
     stage = omni.usd.get_context().get_stage()

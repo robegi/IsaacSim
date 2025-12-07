@@ -63,11 +63,12 @@ std::vector<JointDefinition> analyzeConstraints(const std::vector<MJCFEqualityCo
 
     std::vector<JointDefinition> jointDefinitions;
 
-    for (const auto& [bodyPair, constraints] : constraintGroups)
+    // cppcheck-suppress unusedVariable
+    for (const auto& [_, groupConstraints] : constraintGroups)
     {
         JointDefinition jointDef;
-        jointDef.body1 = constraints[0]->body1;
-        jointDef.body2 = constraints[0]->body2;
+        jointDef.body1 = groupConstraints[0]->body1;
+        jointDef.body2 = groupConstraints[0]->body2;
 
         switch (constraints.size())
         {
@@ -113,7 +114,7 @@ std::vector<JointDefinition> analyzeConstraints(const std::vector<MJCFEqualityCo
             // Fixed joint
             jointDef.type = "fixed";
             jointDef.position = Vec3(0, 0, 0);
-            for (const auto& constraint : constraints)
+            for (const auto* const constraint : constraints)
             {
                 jointDef.position = jointDef.position + constraint->anchor;
             }
@@ -279,11 +280,12 @@ bool MJCFImporter::AddPhysicsEntities(std::unordered_map<std::string, pxr::UsdSt
     {
         std::string rootArtPrimPath = rootPrimPath + "/" + SanitizeUsdName(bodies[i]->name);
         pxr::UsdGeomXform rootArtPrim = pxr::UsdGeomXform::Define(stages["base_stage"], pxr::SdfPath(rootArtPrimPath));
-        pxr::UsdPrim robotPrim = rootArtPrim.GetPrim();
         {
+            pxr::UsdPrim robotPrim = stages["stage"]->GetPrimAtPath(pxr::SdfPath(rootArtPrimPath));
             pxr::UsdEditContext context(stages["stage"], stages["robot_stage"]->GetRootLayer());
             isaacsim::robot::schema::ApplyRobotAPI(robotPrim);
         }
+        pxr::UsdPrim robotPrim = rootArtPrim.GetPrim();
         CreatePhysicsBodyAndJoint(stages, bodies[i], rootPrimPath, rootArtPrimPath, trans, true, rootPrimPath, config,
                                   instanceableUSDPath, robotPrim);
     }
@@ -362,6 +364,126 @@ bool MJCFImporter::AddPhysicsEntities(std::unordered_map<std::string, pxr::UsdSt
     return true;
 }
 
+void moveVisualGeom(pxr::UsdPrim prim,
+                    MJCFGeom* geom,
+                    const ImportConfig& config,
+                    std::map<std::string, MeshInfo>& simulationMeshCache)
+{
+    if (prim)
+    {
+        CARB_LOG_INFO("Prim Exists");
+        // set the transformations first
+        pxr::GfMatrix4d mat;
+        mat.SetIdentity();
+        mat.SetTranslateOnly(pxr::GfVec3d(geom->pos.x, geom->pos.y, geom->pos.z));
+        mat.SetRotateOnly(pxr::GfQuatd(geom->quat.w, geom->quat.x, geom->quat.y, geom->quat.z));
+
+        pxr::GfMatrix4d scale;
+        scale.SetIdentity();
+        scale.SetScale(pxr::GfVec3d(config.distanceScale, config.distanceScale, config.distanceScale));
+        if (geom->type == MJCFVisualElement::ELLIPSOID)
+        {
+            scale.SetScale(config.distanceScale * pxr::GfVec3d(geom->size.x, geom->size.y, geom->size.z));
+        }
+        else if (geom->type == MJCFVisualElement::SPHERE)
+        {
+            Vec3 cen = geom->pos;
+            Quat q = geom->quat;
+            // scale.SetIdentity();
+            mat.SetTranslateOnly(config.distanceScale * pxr::GfVec3d(cen.x, cen.y, cen.z));
+            mat.SetRotateOnly(pxr::GfQuatd(q.w, q.x, q.y, q.z));
+        }
+        else if (geom->type == MJCFVisualElement::CAPSULE)
+        {
+            Vec3 cen;
+            Quat q;
+
+            if (geom->hasFromTo)
+            {
+                Vec3 diff = geom->to - geom->from;
+                diff = Normalize(diff);
+                Vec3 rotVec = Cross(Vec3(1.0f, 0.0f, 0.0f), diff);
+                if (Length(rotVec) < 1e-5)
+                {
+                    rotVec = Vec3(0.0f, 1.0f, 0.0f); // default rotation about y-axis
+                }
+                else
+                {
+                    rotVec = Normalize(rotVec); // z axis
+                }
+
+                float angle = acos(diff.x);
+                cen = 0.5f * (geom->from + geom->to);
+                q = QuatFromAxisAngle(rotVec, angle);
+            }
+            else
+            {
+                cen = geom->pos;
+                q = geom->quat * QuatFromAxisAngle(Vec3(0.0f, 1.0f, 0.0f), -kPi * 0.5f);
+            }
+
+            mat.SetTranslateOnly(config.distanceScale * pxr::GfVec3d(cen.x, cen.y, cen.z));
+            mat.SetRotateOnly(pxr::GfQuatd(q.w, q.x, q.y, q.z));
+        }
+        else if (geom->type == MJCFVisualElement::CYLINDER)
+        {
+            Vec3 cen;
+            Quat q;
+            if (geom->hasFromTo)
+            {
+                cen = 0.5f * (geom->from + geom->to);
+                Vec3 axis = geom->to - geom->from;
+                q = GetRotationQuat(Vec3(0.0f, 0.0f, 1.0f), Normalize(axis));
+            }
+            else
+            {
+                cen = geom->pos;
+                q = geom->quat;
+            }
+
+            mat.SetRotateOnly(pxr::GfQuatd(q.w, q.x, q.y, q.z));
+            mat.SetTranslateOnly(config.distanceScale * pxr::GfVec3d(cen.x, cen.y, cen.z));
+        }
+        else if (geom->type == MJCFVisualElement::BOX)
+        {
+            Vec3 s = geom->size;
+            Vec3 cen = geom->pos;
+            Quat q = geom->quat;
+            scale.SetScale(config.distanceScale * pxr::GfVec3d(s.x, s.y, s.z));
+            mat.SetTranslateOnly(config.distanceScale * pxr::GfVec3d(cen.x, cen.y, cen.z));
+            mat.SetRotateOnly(pxr::GfQuatd(q.w, q.x, q.y, q.z));
+        }
+        else if (geom->type == MJCFVisualElement::MESH)
+        {
+            Vec3 cen = geom->pos;
+            Quat q = geom->quat;
+
+            MeshInfo meshInfo = simulationMeshCache.find(geom->mesh)->second;
+            scale.SetScale(config.distanceScale *
+                           pxr::GfVec3d(meshInfo.mesh->scale.x, meshInfo.mesh->scale.y, meshInfo.mesh->scale.z));
+
+            mat.SetTranslateOnly(config.distanceScale * pxr::GfVec3d(cen.x, cen.y, cen.z));
+            mat.SetRotateOnly(pxr::GfQuatd(q.w, q.x, q.y, q.z));
+        }
+        else if (geom->type == MJCFVisualElement::PLANE)
+        {
+            Vec3 cen = geom->pos;
+            Quat q = geom->quat;
+            scale.SetIdentity();
+            mat.SetTranslateOnly(config.distanceScale * pxr::GfVec3d(cen.x, cen.y, cen.z));
+            mat.SetRotateOnly(pxr::GfQuatd(q.w, q.x, q.y, q.z));
+        }
+
+        pxr::UsdGeomXformable gprim = pxr::UsdGeomXformable(prim);
+        gprim.ClearXformOpOrder();
+        gprim.AddTranslateOp(pxr::UsdGeomXformOp::PrecisionDouble).Set(mat.ExtractTranslation());
+        gprim.AddOrientOp(pxr::UsdGeomXformOp::PrecisionDouble).Set(mat.ExtractRotationQuat());
+        gprim.AddScaleOp(pxr::UsdGeomXformOp::PrecisionDouble)
+            .Set(pxr::GfVec3d(scale.GetRow3(0)[0], scale.GetRow3(1)[1], scale.GetRow3(2)[2]));
+        CARB_LOG_INFO("Done Adding Mesh");
+    }
+}
+
 bool MJCFImporter::addVisualGeom(pxr::UsdStageWeakPtr stage,
                                  pxr::UsdPrim bodyPrim,
                                  MJCFBody* body,
@@ -374,10 +496,10 @@ bool MJCFImporter::addVisualGeom(pxr::UsdStageWeakPtr stage,
     std::string baseVisualsPath = "/visuals/" + bodyPrim.GetName().GetString();
     pxr::UsdPrim visualsPrim = stage->DefinePrim(pxr::SdfPath(bodyPath + "/visuals"), pxr::TfToken("Xform"));
     pxr::UsdPrim basePrim = stage->DefinePrim(pxr::SdfPath(baseVisualsPath), pxr::TfToken("Xform"));
+
     for (int i = 0; i < (int)body->geoms.size(); i++)
     {
         bool isVisual = body->geoms[i]->contype == 0 && body->geoms[i]->conaffinity == 0;
-
         if (config.visualizeCollisionGeoms || !body->hasVisual || isVisual)
         {
             // Path where the mesh will be referenced
@@ -397,9 +519,13 @@ bool MJCFImporter::addVisualGeom(pxr::UsdStageWeakPtr stage,
                                                              config, materialPaths, true, rootPrimPath, false);
                 convertedMeshes[meshName] = mesh_prim.GetPath();
             }
-            basePrim.GetReferences().AddInternalReference(convertedMeshes[meshName]);
+            pxr::SdfPath baseMeshPrimPath = getNextFreePath(
+                stage, pxr::SdfPath(baseVisualsPath).AppendChild(pxr::TfToken(SanitizeUsdName(meshName))));
+            pxr::UsdPrim baseMeshPrim = stage->DefinePrim(baseMeshPrimPath, pxr::TfToken("Xform"));
+            moveVisualGeom(baseMeshPrim, body->geoms[i], config, simulationMeshCache);
+            baseMeshPrim.GetReferences().AddInternalReference(convertedMeshes[meshName]);
             // parse material and texture using helper function
-            applyMaterial(stage, basePrim, body->geoms[i]);
+            applyMaterial(stage, baseMeshPrim, body->geoms[i]);
             geomPrimMap[body->geoms[i]->name] = prim;
         }
         geomToBodyPrim[body->geoms[i]->name] = bodyPrim;
@@ -436,6 +562,7 @@ void MJCFImporter::addVisualSites(
                 mesh_prim = createPrimitiveGeom(stage, meshPath, body->sites[i], config, true);
                 convertedMeshes[name] = mesh_prim.GetPath();
             }
+            // moveVisualGeom(prim, body->sites[i], config, simulationMeshCache);
             prim.GetReferences().AddInternalReference(convertedMeshes[name]);
             prim.SetInstanceable(true);
             // parse material and texture using helper function
@@ -508,6 +635,11 @@ void MJCFImporter::addWorldGeomsAndSites(std::unordered_map<std::string, pxr::Us
                     stages["physics_stage"]->DefinePrim(pxr::SdfPath(bodyPath + "/collisions"), pxr::TfToken("Xform"));
                     pxr::UsdPrim basePrim =
                         stages["base_stage"]->DefinePrim(pxr::SdfPath(baseCollisionPath), pxr::TfToken("Xform"));
+                    pxr::UsdPrim baseMeshPrim = stages["base_stage"]->DefinePrim(
+                        getNextFreePath(
+                            stages["base_stage"],
+                            pxr::SdfPath(baseCollisionPath).AppendChild(pxr::TfToken(SanitizeUsdName(uniqueName)))),
+                        pxr::TfToken("Xform"));
                     pxr::UsdPrim prim =
                         stages["physics_stage"]->DefinePrim(pxr::SdfPath(geomPath), pxr::TfToken("Xform"));
                     ;
@@ -525,10 +657,17 @@ void MJCFImporter::addWorldGeomsAndSites(std::unordered_map<std::string, pxr::Us
                             createPrimitiveGeom(stages["base_stage"], meshPath, worldBody.geoms[i], simulationMeshCache,
                                                 config, materialPaths, false, rootPath, true);
                         convertedMeshes[meshName] = mesh_prim.GetPath();
-                        applyCollisionGeom(stages["stage"], mesh_prim, config.convexDecomp);
                     }
-                    basePrim.GetReferences().AddInternalReference(convertedMeshes[meshName]);
+                    moveVisualGeom(baseMeshPrim, worldBody.geoms[i], config, simulationMeshCache);
+                    baseMeshPrim.GetReferences().AddInternalReference(convertedMeshes[meshName]);
                     prim.GetReferences().AddInternalReference(basePrim.GetPath());
+                    for (auto collisionMeshPrim : pxr::UsdPrimRange(basePrim))
+                    {
+                        if (collisionMeshPrim.IsA<pxr::UsdGeomGprim>())
+                        {
+                            applyCollisionGeom(stages["stage"], collisionMeshPrim, config.convexDecomp);
+                        }
+                    }
 
                     if (prim)
                     {
@@ -583,6 +722,9 @@ void MJCFImporter::addWorldGeomsAndSites(std::unordered_map<std::string, pxr::Us
         std::string geomPath = bodyPath + "/visuals/" + uniqueName;
         stages["base_stage"]->DefinePrim(pxr::SdfPath(bodyPath + "/visuals"), pxr::TfToken("Xform"));
         pxr::UsdPrim prim = stages["base_stage"]->DefinePrim(pxr::SdfPath(geomPath), pxr::TfToken("Xform"));
+        pxr::SdfPath baseMeshPrimPath = getNextFreePath(
+            stages["base_stage"], pxr::SdfPath(geomPath).AppendChild(pxr::TfToken(SanitizeUsdName(uniqueName))));
+        pxr::UsdPrim baseMeshPrim = stages["base_stage"]->DefinePrim(baseMeshPrimPath, pxr::TfToken("Xform"));
         std::string meshName = worldBody.geoms[i]->name;
         if (worldBody.geoms[i]->type == MJCFVisualElement::MESH)
         {
@@ -597,8 +739,9 @@ void MJCFImporter::addWorldGeomsAndSites(std::unordered_map<std::string, pxr::Us
                                     materialPaths, true, rootPath, false);
             convertedMeshes[meshName] = mesh_prim.GetPath();
         }
-        prim.GetReferences().AddInternalReference(convertedMeshes[meshName]);
-        prim.SetInstanceable(true);
+        moveVisualGeom(baseMeshPrim, worldBody.geoms[i], config, simulationMeshCache);
+        baseMeshPrim.GetReferences().AddInternalReference(convertedMeshes[meshName]);
+        baseMeshPrim.SetInstanceable(true);
         // pxr::UsdPrim prim = createPrimitiveGeom(stages["stage"], geomPath, worldBody.geoms[i],
         // simulationMeshCache,
         //                                         config, materialPaths, true, rootPath, false);
@@ -612,7 +755,7 @@ void MJCFImporter::addWorldGeomsAndSites(std::unordered_map<std::string, pxr::Us
         }
 
         // parse material and texture using helper function
-        applyMaterial(stages["base_stage"], bodyLink, worldBody.geoms[i]);
+        applyMaterial(stages["base_stage"], baseMeshPrim, worldBody.geoms[i]);
         geomPrimMap[worldBody.geoms[i]->name] = prim;
 
         geomToBodyPrim[worldBody.geoms[i]->name] = bodyLink;
@@ -752,17 +895,17 @@ void MJCFImporter::AddTendons(pxr::UsdStageWeakPtr stage, std::string rootPath)
                     if (t->fixedJoints[i]->joint != rootJoint->joint)
                     {
                         MJCFTendon::FixedJoint* childJoint = t->fixedJoints[i];
-                        pxr::VtArray<float> coef = { childJoint->coef };
+                        pxr::VtArray<float> childCoef = { childJoint->coef };
                         if (revoluteJointsMap.find(childJoint->joint) != revoluteJointsMap.end())
                         {
                             pxr::UsdPhysicsRevoluteJoint childJointPrim = revoluteJointsMap[childJoint->joint];
                             pxr::PhysxSchemaPhysxTendonAxisAPI axisAPI = pxr::PhysxSchemaPhysxTendonAxisAPI::Apply(
                                 childJointPrim.GetPrim(), pxr::TfToken(tendonName));
-                            axisAPI.CreateGearingAttr().Set(coef);
+                            axisAPI.CreateGearingAttr().Set(childCoef);
                             pxr::VtArray<float> forcecoeffs;
-                            for (int i = 0; i < (int)coef.size(); i++)
+                            for (int j = 0; j < (int)childCoef.size(); j++)
                             {
-                                auto forcecoeff = coef[i];
+                                auto forcecoeff = childCoef[j];
                                 if (abs(forcecoeff) < 1e-6)
                                 {
                                     forcecoeff = 1.0f * sign(forcecoeff);
@@ -782,9 +925,9 @@ void MJCFImporter::AddTendons(pxr::UsdStageWeakPtr stage, std::string rootPath)
                                 childJointPrim.GetPrim(), pxr::TfToken(tendonName));
                             axisAPI.CreateGearingAttr().Set(coef);
                             pxr::VtArray<float> forcecoeffs;
-                            for (int i = 0; i < (int)coef.size(); i++)
+                            for (int k = 0; k < (int)coef.size(); k++)
                             {
-                                auto forcecoeff = coef[i];
+                                auto forcecoeff = coef[k];
                                 if (abs(forcecoeff) < 1e-6)
                                 {
                                     forcecoeff = 1.0f * sign(forcecoeff);
@@ -804,9 +947,9 @@ void MJCFImporter::AddTendons(pxr::UsdStageWeakPtr stage, std::string rootPath)
                                 childJointPrim.GetPrim(), pxr::TfToken(tendonName));
                             axisAPI.CreateGearingAttr().Set(coef);
                             pxr::VtArray<float> forcecoeffs;
-                            for (int i = 0; i < (int)coef.size(); i++)
+                            for (int m = 0; m < (int)coef.size(); m++)
                             {
-                                auto forcecoeff = coef[i];
+                                auto forcecoeff = coef[m];
                                 if (abs(forcecoeff) < 1e-6)
                                 {
                                     forcecoeff = 1.0f * sign(forcecoeff);
@@ -835,10 +978,10 @@ void MJCFImporter::AddTendons(pxr::UsdStageWeakPtr stage, std::string rootPath)
         else if (t->type == MJCFTendon::SPATIAL)
         {
             std::map<std::string, int> attachmentNames;
-            bool isFirstAttachment = true;
 
             if (t->spatialAttachments.size() > 0)
             {
+                bool isFirstAttachment = true;
                 for (auto it = t->spatialBranches.begin(); it != t->spatialBranches.end(); it++)
                 {
                     std::vector<MJCFTendon::SpatialAttachment*> attachments = it->second;
@@ -912,8 +1055,6 @@ void MJCFImporter::AddTendons(pxr::UsdStageWeakPtr stage, std::string rootPath)
                         if (isFirstAttachment)
                         {
                             isFirstAttachment = false;
-                            parentPrim = linkPrim;
-                            parentName = name;
                             auto rootApi =
                                 pxr::PhysxSchemaPhysxTendonAttachmentRootAPI::Apply(linkPrim, pxr::TfToken(name));
                             pxr::GfVec3f localPos = GetLocalPos(*attachment);
@@ -1034,7 +1175,6 @@ void MJCFImporter::CreatePhysicsBodyAndJoint(std::unordered_map<std::string, pxr
     }
     else
     {
-        pxr::UsdEditContext context(stages["stage"], stages["base_stage"]->GetRootLayer());
         if (!body->inertial && body->geoms.size() == 0)
         {
             CARB_LOG_WARN("*** Neither inertial nor geometries where specified for %s", body->name.c_str());
@@ -1043,11 +1183,13 @@ void MJCFImporter::CreatePhysicsBodyAndJoint(std::unordered_map<std::string, pxr
         std::string bodyPath = rootPrimPath + "/" + SanitizeUsdName(body->name);
         pxr::UsdGeomXformable bodyPrim = createBody(stages["stage"], bodyPath, myTrans, config);
         {
-            pxr::UsdEditContext context(stages["stage"], stages["robot_stage"]->GetRootLayer());
-            pxr::UsdPrim linkPrim = bodyPrim.GetPrim();
+            pxr::UsdEditContext robotContext(stages["stage"], stages["robot_stage"]->GetRootLayer());
+            pxr::UsdPrim linkPrim = stages["stage"]->GetPrimAtPath(pxr::SdfPath(bodyPath));
             isaacsim::robot::schema::ApplyLinkAPI(linkPrim);
-            auto linksRel = robotPrim.GetRelationship(
-                isaacsim::robot::schema::relationNames.at(isaacsim::robot::schema::Relations::ROBOT_LINKS));
+            auto linksRel = stages["stage"]
+                                ->GetPrimAtPath(robotPrim.GetPath())
+                                .GetRelationship(isaacsim::robot::schema::relationNames.at(
+                                    isaacsim::robot::schema::Relations::ROBOT_LINKS));
             pxr::SdfPathVector targets;
             linksRel.GetTargets(&targets);
             targets.push_back(linkPrim.GetPath());
@@ -1069,7 +1211,7 @@ void MJCFImporter::CreatePhysicsBodyAndJoint(std::unordered_map<std::string, pxr
         {
             pxr::UsdGeomXform rootPrim = pxr::UsdGeomXform::Define(stages["stage"], pxr::SdfPath(bodyPath));
             {
-                pxr::UsdEditContext context(stages["stage"], stages["physics_stage"]->GetRootLayer());
+                pxr::UsdEditContext physicsContext(stages["stage"], stages["physics_stage"]->GetRootLayer());
                 applyArticulationAPI(stages, rootPrim, config);
                 if (config.fixBase || numJoints == 0)
                 {
@@ -1085,21 +1227,22 @@ void MJCFImporter::CreatePhysicsBodyAndJoint(std::unordered_map<std::string, pxr
         // add collision geoms first to detect whether visuals are available
         {
 
-            pxr::UsdEditContext context(stages["stage"], stages["physics_stage"]->GetRootLayer());
-
-            std::string baseCollisionsPath = "/collisions/" + bodyPrim.GetPrim().GetName().GetString();
+            pxr::UsdEditContext collisionContext(stages["stage"], stages["physics_stage"]->GetRootLayer());
+            std::string uniqueName = bodyPrim.GetPrim().GetName().GetString();
+            std::string baseCollisionsPath = "/collisions/" + uniqueName;
             pxr::UsdPrim basePrim =
                 stages["physics_stage"]->DefinePrim(pxr::SdfPath(baseCollisionsPath), pxr::TfToken("Xform"));
             for (int i = 0; i < (int)body->geoms.size(); i++)
             {
                 bool isVisual = body->geoms[i]->contype == 0 && body->geoms[i]->conaffinity == 0;
+
                 if (isVisual)
                 {
                     body->hasVisual = true;
                 }
                 else
                 {
-                    pxr::UsdEditContext context(stages["stage"], stages["physics_stage"]->GetRootLayer());
+                    pxr::UsdEditContext meshContext(stages["stage"], stages["physics_stage"]->GetRootLayer());
                     std::string meshName = body->geoms[i]->name;
                     if (body->geoms[i]->type == MJCFVisualElement::MESH)
                     {
@@ -1113,13 +1256,25 @@ void MJCFImporter::CreatePhysicsBodyAndJoint(std::unordered_map<std::string, pxr
                             createPrimitiveGeom(stages["base_stage"], meshPath, body->geoms[i], simulationMeshCache,
                                                 config, materialPaths, false, rootPrimPath, true);
                         convertedMeshes[meshName] = mesh_prim.GetPath();
-                        applyCollisionGeom(stages["stage"], mesh_prim, config.convexDecomp);
                     }
-                    basePrim.GetReferences().AddInternalReference(convertedMeshes[meshName]);
+                    pxr::SdfPath baseMeshPrimPath = getNextFreePath(
+                        stages["base_stage"],
+                        pxr::SdfPath(baseCollisionsPath).AppendChild(pxr::TfToken(SanitizeUsdName(meshName))));
+                    pxr::UsdPrim baseMeshPrim = stages["base_stage"]->DefinePrim(baseMeshPrimPath, pxr::TfToken("Xform"));
+                    moveVisualGeom(baseMeshPrim, body->geoms[i], config, simulationMeshCache);
+                    baseMeshPrim.GetReferences().AddInternalReference(convertedMeshes[meshName]);
                     nameToUsdCollisionPrim[body->geoms[i]->name] = bodyPath;
                 }
             }
             collisionPrim.GetReferences().AddInternalReference(basePrim.GetPath());
+            for (auto collisionMeshPrim : pxr::UsdPrimRange(basePrim))
+            {
+                if (collisionMeshPrim.IsA<pxr::UsdGeomGprim>())
+                {
+                    applyCollisionGeom(stages["stage"], collisionMeshPrim, config.convexDecomp);
+                }
+            }
+            // applyCollisionGeom(stages["stage"], basePrim, config.convexDecomp);
             // applyCollisionGeom(stages["stage"], collisionPrim, config.convexDecomp);
             collisionPrim.SetInstanceable(true);
         }
@@ -1220,12 +1375,12 @@ void MJCFImporter::addJoints(std::unordered_map<std::string, pxr::UsdStageRefPtr
                 actuatorIdx = actuatorIterator->second;
                 actuator = actuators[actuatorIdx];
             }
-            std::string jointPath = rootPath + "/joints/" + SanitizeUsdName(joint->name);
+            std::string currentJointPath = rootPath + "/joints/" + SanitizeUsdName(joint->name);
 
             if (joint->type == MJCFJoint::HINGE)
             {
                 pxr::UsdPhysicsRevoluteJoint jointPrim =
-                    pxr::UsdPhysicsRevoluteJoint::Define(stages["stage"], pxr::SdfPath(jointPath));
+                    pxr::UsdPhysicsRevoluteJoint::Define(stages["stage"], pxr::SdfPath(currentJointPath));
                 initPhysicsJoint(jointPrim, poseJointToParentBody, poseJointToChildBody, parentBodyPath, bodyPath,
                                  config.distanceScale);
                 applyPhysxJoint(jointPrim, joint);
@@ -1251,7 +1406,7 @@ void MJCFImporter::addJoints(std::unordered_map<std::string, pxr::UsdStageRefPtr
             else if (joint->type == MJCFJoint::SLIDE)
             {
                 pxr::UsdPhysicsPrismaticJoint jointPrim =
-                    pxr::UsdPhysicsPrismaticJoint::Define(stages["stage"], pxr::SdfPath(jointPath));
+                    pxr::UsdPhysicsPrismaticJoint::Define(stages["stage"], pxr::SdfPath(currentJointPath));
                 initPhysicsJoint(jointPrim, poseJointToParentBody, poseJointToChildBody, parentBodyPath, bodyPath,
                                  config.distanceScale);
                 applyPhysxJoint(jointPrim, joint);
@@ -1350,13 +1505,15 @@ void MJCFImporter::addJoints(std::unordered_map<std::string, pxr::UsdStageRefPtr
             }
         }
         {
-            pxr::UsdEditContext context(stages["stage"], stages["robot_stage"]->GetRootLayer());
+            pxr::UsdEditContext robotContext(stages["stage"], stages["robot_stage"]->GetRootLayer());
             pxr::UsdPrim jointPrim = stages["stage"]->GetPrimAtPath(pxr::SdfPath(jointPath));
             if (jointPrim)
             {
                 isaacsim::robot::schema::ApplyJointAPI(jointPrim);
-                auto jointsRel = robotPrim.GetRelationship(
-                    isaacsim::robot::schema::relationNames.at(isaacsim::robot::schema::Relations::ROBOT_JOINTS));
+                auto jointsRel = stages["stage"]
+                                     ->GetPrimAtPath(robotPrim.GetPath())
+                                     .GetRelationship(isaacsim::robot::schema::relationNames.at(
+                                         isaacsim::robot::schema::Relations::ROBOT_JOINTS));
                 pxr::SdfPathVector targets;
                 jointsRel.GetTargets(&targets);
                 targets.push_back(jointPrim.GetPath());
@@ -1551,11 +1708,10 @@ void MJCFImporter::computeKinematicHierarchy()
     }
 
     int level_num = 0;
-    int num_bodies_at_level;
 
     while (bodyQueue.size() != 0)
     {
-        num_bodies_at_level = (int)bodyQueue.size();
+        int num_bodies_at_level = (int)bodyQueue.size();
 
         for (int i = 0; i < num_bodies_at_level; i++)
         {

@@ -16,7 +16,7 @@
 import asyncio
 import os.path
 import sys
-import webbrowser
+from pathlib import Path
 
 import carb.settings
 import carb.tokens
@@ -31,15 +31,6 @@ import omni.ui as ui
 from isaacsim.core.version import get_version
 from omni.kit.menu.utils import MenuItemDescription, add_menu_items, build_submenu_dict
 from omni.kit.window.title import get_main_window_title
-
-DOCS_URL = "https://docs.omniverse.nvidia.com"
-REFERENCE_GUIDE_URL = DOCS_URL + "/isaacsim"
-ASSETS_GUIDE_URL = DOCS_URL + "/isaacsim/latest/install_workstation.html"
-MANUAL_URL = "https://docs.omniverse.nvidia.com/py/isaacsim/index.html"
-FORUMS_URL = "https://forums.developer.nvidia.com/c/omniverse/simulation/69"
-KIT_MANUAL_URL = DOCS_URL + "/py/kit/index.html"
-
-from pathlib import Path
 
 DATA_PATH = Path(__file__).parent.parent.parent.parent.parent
 EXT_FOLDER = "isaacsim.app.setup"
@@ -78,6 +69,7 @@ class CreateSetupExtension(omni.ext.IExt):
         self.__setup_window_task = asyncio.ensure_future(self.__dock_windows())
         self.__setup_property_window = asyncio.ensure_future(self.__property_window())
         asyncio.ensure_future(self.__enable_ros_bridge())
+        asyncio.ensure_future(self.__enable_ros_sim_control())
         self.__menu_update()
         self.__add_app_icon(ext_id)
         self.create_new_stage = self._settings.get("/isaac/startup/create_new_stage")
@@ -86,9 +78,6 @@ class CreateSetupExtension(omni.ext.IExt):
 
         # Increase hang detection timeout
         omni.client.set_hang_detection_time_ms(10000)
-
-        # Force navmesh baking false
-        self._settings.set("/persistent/exts/omni.anim.navigation.core/navMesh/config/autoRebakeOnChanges", False)
 
     async def __new_stage(self):
 
@@ -160,14 +149,6 @@ class CreateSetupExtension(omni.ext.IExt):
         """show the omniverse ui documentation as an external Application"""
         self._start_app("isaacsim.exp.uidoc.kit")
 
-    def _show_selector(self):
-        """show the app selector as an external Application"""
-        self._start_app(
-            "isaacsim.selector.kit",
-            console=False,
-            custom_args={"--/persistent/ext/isaacsim.app.selector/auto_start=false"},
-        )
-
     async def __dock_windows(self):
         await omni.kit.app.get_app().next_update_async()
 
@@ -202,31 +183,7 @@ class CreateSetupExtension(omni.ext.IExt):
             "Create Layout", ["path_prim", "material_prim", "xformable_prim", "shade_prim", "camera_prim"]
         )
 
-    def _open_browser(self, path):
-        import platform
-        import subprocess
-
-        if platform.system().lower() == "windows":
-            webbrowser.open(path)
-        else:
-            # use native system level open, handles snap based browsers better
-            subprocess.Popen(["xdg-open", path])
-
-    def _open_web_file(self, path):
-        filepath = os.path.abspath(path)
-        if os.path.exists(filepath):
-            self._open_browser("file://" + filepath)
-        else:
-            carb.log_warn("Failed to open " + filepath)
-
     def __menu_update(self):
-
-        self.HELP_REFERENCE_GUIDE_MENU = "Help/Isaac Sim Online Guide"
-        self.HELP_SCRIPTING_MANUAL = "Help/Isaac Sim Scripting Manual"
-        self.HELP_FORUMS_URL = "Help/Isaac Sim Online Forums"
-        self.HELP_UI_DOCS = "Help/Omni UI Docs"
-        self.HELP_KIT_MANUAL = "Help/Kit Programming Manual"
-        self.UI_SELECTOR_MENU_PATH = "Help/Isaac Sim App Selector"
 
         self._current_layout_priority = 20
 
@@ -257,18 +214,7 @@ class CreateSetupExtension(omni.ext.IExt):
 
         menu_dict = build_submenu_dict(
             [
-                MenuItemDescription(
-                    name=self.HELP_REFERENCE_GUIDE_MENU, onclick_fn=lambda *_: self._open_browser(REFERENCE_GUIDE_URL)
-                ),
-                MenuItemDescription(
-                    name=self.HELP_SCRIPTING_MANUAL, onclick_fn=lambda *_: self._open_browser(MANUAL_URL)
-                ),
-                MenuItemDescription(name=self.HELP_FORUMS_URL, onclick_fn=lambda *_: self._open_browser(FORUMS_URL)),
-                MenuItemDescription(
-                    name=self.HELP_KIT_MANUAL, onclick_fn=lambda *_: self._open_browser(KIT_MANUAL_URL)
-                ),
-                MenuItemDescription(name=self.HELP_UI_DOCS, onclick_fn=lambda *_: self._show_ui_docs()),
-                MenuItemDescription(name=self.UI_SELECTOR_MENU_PATH, onclick_fn=lambda *_: self._show_selector()),
+                MenuItemDescription(name="Help/Omni UI Docs", onclick_fn=lambda *_: self._show_ui_docs()),
                 add_layout_menu_entry("Default", "default", carb.input.KeyboardInput.KEY_1),
                 add_layout_menu_entry("Visual Scripting", "visualScripting", carb.input.KeyboardInput.KEY_4),
                 add_layout_menu_entry("Replicator", "sdg", carb.input.KeyboardInput.KEY_5),
@@ -282,6 +228,10 @@ class CreateSetupExtension(omni.ext.IExt):
     def __add_app_icon(self, ext_id):
 
         extension_path = self._ext_manager.get_extension_path(ext_id)
+        isaac_launch_path = os.path.join(
+            os.path.abspath(carb.tokens.get_tokens_interface().resolve("${app}") + "/../"), "isaac-sim.sh"
+        )
+
         if sys.platform == "win32":
             pass
         else:
@@ -293,6 +243,7 @@ class CreateSetupExtension(omni.ext.IExt):
                         f"""[Desktop Entry]
 Version=1.0
 Name=Isaac Sim
+Exec={isaac_launch_path}
 Icon={extension_path}/data/omni.isaac.sim.png
 Terminal=false
 Type=Application
@@ -308,3 +259,14 @@ StartupWMClass=IsaacSim"""
                 await omni.kit.app.get_app().next_update_async()
         except Exception as e:
             carb.log_warn(f"isaacsim.app.setup shutdown before ros bridge enabled")
+
+    async def __enable_ros_sim_control(self):
+        """Enable the simulation control extension if specified in settings."""
+        try:
+            ros_sim_control_enabled = self._settings.get("isaac/startup/ros_sim_control_extension")
+            if ros_sim_control_enabled:
+                await omni.kit.app.get_app().next_update_async()
+                self._ext_manager.set_extension_enabled_immediate("isaacsim.ros2.sim_control", True)
+                await omni.kit.app.get_app().next_update_async()
+        except Exception as e:
+            carb.log_warn(f"isaacsim.app.setup shutdown before sim control enabled")

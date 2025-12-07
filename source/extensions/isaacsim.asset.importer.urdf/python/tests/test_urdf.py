@@ -28,6 +28,8 @@ import omni.kit.test
 import pxr
 from pxr import Gf, PhysicsSchemaTools, PhysxSchema, Sdf, UsdGeom, UsdPhysics, UsdShade
 
+TEST_OUT_PATH = "_tests_out"
+
 
 # Having a test class dervived from omni.kit.test.AsyncTestCase declared on the root of module will make it auto-discoverable by omni.kit.test
 class TestUrdf(omni.kit.test.AsyncTestCase):
@@ -38,9 +40,10 @@ class TestUrdf(omni.kit.test.AsyncTestCase):
         ext_manager = omni.kit.app.get_app().get_extension_manager()
         ext_id = ext_manager.get_enabled_extension_id("isaacsim.asset.importer.urdf")
         self._extension_path = ext_manager.get_extension_path(ext_id)
-        self.dest_path = os.path.abspath(self._extension_path + "/tests_out")
+        self.dest_path = os.path.abspath(self._extension_path + "/" + TEST_OUT_PATH)
         await omni.usd.get_context().new_stage_async()
         await omni.kit.app.get_app().next_update_async()
+        self._stage = omni.usd.get_context().get_stage()
         pass
 
     # After running each test
@@ -49,6 +52,18 @@ class TestUrdf(omni.kit.test.AsyncTestCase):
         # await omni.usd.get_context().new_stage_async()
         await omni.kit.app.get_app().next_update_async()
         pass
+
+    async def standard_checks(self, prim_path):
+
+        self.assertAlmostEqual(UsdGeom.GetStageMetersPerUnit(self._stage), 1.0)
+
+        prim = self._stage.GetPrimAtPath(prim_path)
+        # check that all meshes have >0 vertices
+        prim_range = [c for c in pxr.Usd.PrimRange(prim, pxr.Usd.TraverseInstanceProxies()) if UsdGeom.Mesh(c)]
+        for prim in prim_range:
+            mesh = UsdGeom.Mesh(prim)
+            self.assertGreater(len(mesh.GetFaceVertexCountsAttr().Get()), 0)
+        # TODO: Add more checks here
 
     # Tests to make sure visual mesh names are incremented
     async def test_urdf_mesh_naming(self):
@@ -289,7 +304,7 @@ class TestUrdf(omni.kit.test.AsyncTestCase):
     async def test_urdf_overwrite_file(self):
 
         urdf_path = os.path.abspath(self._extension_path + "/data/urdf/tests/test_basic.urdf")
-        dest_path = os.path.abspath(self._extension_path + "/data/urdf/tests/tests_out/test_basic.usd")
+        dest_path = os.path.abspath(self._extension_path + "/data/urdf/tests/" + TEST_OUT_PATH + "/test_basic.usd")
         status, import_config = omni.kit.commands.execute("URDFCreateImportConfig")
 
         import_config.import_inertia_tensor = True
@@ -391,6 +406,10 @@ class TestUrdf(omni.kit.test.AsyncTestCase):
         prim = stage.GetPrimAtPath("/test_merge_joints/link_2")
         self.assertEqual(prim.GetPath(), Sdf.Path.emptyPath)
 
+        # palm link has mass, so it should not merge
+        prim = stage.GetPrimAtPath("/test_merge_joints/palm_link")
+        self.assertNotEqual(prim.GetPath(), Sdf.Path.emptyPath)
+
         pass
 
     async def test_urdf_mtl(self):
@@ -402,7 +421,7 @@ class TestUrdf(omni.kit.test.AsyncTestCase):
         status, import_config = omni.kit.commands.execute("URDFCreateImportConfig")
         omni.kit.commands.execute("URDFParseAndImportFile", urdf_path=urdf_path, import_config=import_config)
 
-        mesh = stage.GetPrimAtPath("/test_mtl/cube/visuals/test_mtl/mesh")
+        mesh = stage.GetPrimAtPath("/test_mtl/cube/visuals/test_mtl/World/mesh")
         self.assertTrue(UsdShade.MaterialBindingAPI(mesh) is not None)
         mat, rel = UsdShade.MaterialBindingAPI(mesh).ComputeBoundMaterial()
         shader = UsdShade.Shader(stage.GetPrimAtPath(mat.GetPrim().GetChildren()[0].GetPath()))
@@ -479,13 +498,13 @@ class TestUrdf(omni.kit.test.AsyncTestCase):
         urdf_path = os.path.abspath(self._extension_path + "/data/urdf/robots/cobotta_pro_900/cobotta_pro_900.urdf")
         status, import_config = omni.kit.commands.execute("URDFCreateImportConfig")
         import_config.parse_mimic = False
-        status, path = omni.kit.commands.execute(
+        status, prim_path = omni.kit.commands.execute(
             "URDFParseAndImportFile", urdf_path=urdf_path, import_config=import_config
         )
-        self.assertTrue(path, "/cobotta_pro_900")
+        self.assertTrue(prim_path, "/cobotta_pro_900")
+        await self.standard_checks(prim_path)
 
-        stage = omni.usd.get_context().get_stage()
-        joint = stage.GetPrimAtPath("/cobotta_pro_900/joints/left_inner_knuckle_joint")
+        joint = self._stage.GetPrimAtPath("/cobotta_pro_900/joints/left_inner_knuckle_joint")
 
         self.assertFalse(joint.HasAPI(PhysxSchema.PhysxMimicJointAPI))
 
@@ -495,23 +514,29 @@ class TestUrdf(omni.kit.test.AsyncTestCase):
             self._extension_path + "/data/urdf/robots/franka_description/robots/panda_arm_hand.urdf"
         )
         status, import_config = omni.kit.commands.execute("URDFCreateImportConfig")
-        omni.kit.commands.execute("URDFParseAndImportFile", urdf_path=urdf_path, import_config=import_config)
-        # TODO add checks here'
+        status, prim_path = omni.kit.commands.execute(
+            "URDFParseAndImportFile", urdf_path=urdf_path, import_config=import_config
+        )
+        await self.standard_checks(prim_path)
 
     async def test_urdf_ur10(self):
 
         urdf_path = os.path.abspath(self._extension_path + "/data/urdf/robots/ur10/urdf/ur10.urdf")
         status, import_config = omni.kit.commands.execute("URDFCreateImportConfig")
-        omni.kit.commands.execute("URDFParseAndImportFile", urdf_path=urdf_path, import_config=import_config)
-        # TODO add checks here'
+        status, prim_path = omni.kit.commands.execute(
+            "URDFParseAndImportFile", urdf_path=urdf_path, import_config=import_config
+        )
+        await self.standard_checks(prim_path)
 
     async def test_urdf_kaya(self):
 
         urdf_path = os.path.abspath(self._extension_path + "/data/urdf/robots/kaya/urdf/kaya.urdf")
         status, import_config = omni.kit.commands.execute("URDFCreateImportConfig")
         import_config.merge_fixed_joints = False
-        omni.kit.commands.execute("URDFParseAndImportFile", urdf_path=urdf_path, import_config=import_config)
-        # TODO add checks here
+        status, prim_path = omni.kit.commands.execute(
+            "URDFParseAndImportFile", urdf_path=urdf_path, import_config=import_config
+        )
+        await self.standard_checks(prim_path)
 
     async def test_missing(self):
 
@@ -767,7 +792,7 @@ class TestUrdf(omni.kit.test.AsyncTestCase):
         base_link = [
             child_prim
             for child_prim in pxr.Usd.PrimRange(
-                stage.GetPrimAtPath("/test_collision_from_visuals/root_link/collisions"),
+                stage.GetPrimAtPath("/test_collision_from_visuals/base_link/collisions"),
                 pxr.Usd.TraverseInstanceProxies(),
             )
             if IsVisualGeom(child_prim)

@@ -29,7 +29,6 @@ import usdrt.Sdf
 from isaacsim.core.prims import SingleArticulation
 from isaacsim.core.utils.physics import simulate_async
 from isaacsim.core.utils.stage import open_stage_async
-from isaacsim.storage.native import get_assets_root_path_async
 from numpy import pi as PI
 
 from .common import ROS2TestCase, get_qos_profile, set_joint_drive_parameters
@@ -41,11 +40,6 @@ class TestRos2JointStatePublisher(ROS2TestCase):
         await super().setUp()
 
         await omni.usd.get_context().new_stage_async()
-
-        self._assets_root_path = await get_assets_root_path_async()
-        if self._assets_root_path is None:
-            carb.log_error("Could not find Isaac Sim assets folder")
-            return
 
         await omni.kit.app.get_app().next_update_async()
 
@@ -100,8 +94,8 @@ class TestRos2JointStatePublisher(ROS2TestCase):
             self.js_ros.velocity = data.velocity
             self.js_ros.effort = data.effort
 
-        node = rclpy.create_node("isaac_sim_test_joint_state_pub_sub")
-        js_sub = node.create_subscription(JointState, "joint_states", js_callback, get_qos_profile())
+        node = self.create_node("isaac_sim_test_joint_state_pub_sub")
+        js_sub = self.create_subscription(node, JointState, "joint_states", js_callback, get_qos_profile())
 
         def spin():
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -122,6 +116,9 @@ class TestRos2JointStatePublisher(ROS2TestCase):
         self._timeline.stop()
         spin()
 
+        node.destroy_subscription(js_sub)
+        node.destroy_node()
+
         pass
 
     async def test_joint_state_velocity_publisher(self):
@@ -134,8 +131,8 @@ class TestRos2JointStatePublisher(ROS2TestCase):
         def js_callback(data: JointState):
             self.js_ros.velocity = data.velocity
 
-        node = rclpy.create_node("isaac_sim_test_joint_state_pub_sub")
-        js_sub = node.create_subscription(JointState, "joint_states", js_callback, get_qos_profile())
+        node = self.create_node("isaac_sim_test_joint_state_pub_sub")
+        js_sub = self.create_subscription(node, JointState, "joint_states", js_callback, get_qos_profile())
 
         def spin():
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -175,17 +172,15 @@ class TestRos2JointStatePublisher(ROS2TestCase):
         self._timeline.stop()
         spin()
 
+        node.destroy_subscription(js_sub)
+        node.destroy_node()
+
 
 class TestRos2JointStateSubscriber(ROS2TestCase):
     # Before running each test
     async def setUp(self):
         await super().setUp()
         await omni.usd.get_context().new_stage_async()
-
-        self._assets_root_path = await get_assets_root_path_async()
-        if self._assets_root_path is None:
-            carb.log_error("Could not find Isaac Sim assets folder")
-            return
 
         await omni.kit.app.get_app().next_update_async()
 
@@ -246,8 +241,8 @@ class TestRos2JointStateSubscriber(ROS2TestCase):
         from sensor_msgs.msg import JointState
 
         ros2_publisher = None
-        ros2_node = rclpy.create_node("isaac_sim_test_joint_state_sub")
-        ros2_publisher = ros2_node.create_publisher(JointState, "joint_command", 10)
+        ros2_node = self.create_node("isaac_sim_test_joint_state_sub")
+        ros2_publisher = self.create_publisher(ros2_node, JointState, "joint_command", 10)
 
         # test position drive
         js_position = JointState()
@@ -288,8 +283,8 @@ class TestRos2JointStateSubscriber(ROS2TestCase):
         from sensor_msgs.msg import JointState
 
         ros2_publisher = None
-        ros2_node = rclpy.create_node("isaac_sim_test_joint_state_sub")
-        ros2_publisher = ros2_node.create_publisher(JointState, "joint_command", 10)
+        ros2_node = self.create_node("isaac_sim_test_joint_state_sub")
+        ros2_publisher = self.create_publisher(ros2_node, JointState, "joint_command", 10)
 
         test_position = [45 * PI / 180.0, 0.2, -120 * PI / 180.0]
         test_velocity = [5 * PI / 180.0, 0.1, -2.5 * PI / 180.0]
@@ -395,6 +390,12 @@ class TestRos2JointStateSubscriber(ROS2TestCase):
         self.assertAlmostEqual(joint_velocity_received[0], 0.5, delta=1e-2)
         self.assertAlmostEqual(joint_velocity_received[2], -2.5, delta=1e-2)
         self.assertAlmostEqual(joint_velocity_received[1], 0, delta=1e-2)
+
+        ros2_node.destroy_publisher(ros2_publisher)
+        ros2_node.destroy_node()
+
+        ros2_node.destroy_publisher(ros2_publisher)
+        ros2_node.destroy_node()
 
     async def test_joint_state_subscriber_with_names(self):
         """
@@ -413,8 +414,8 @@ class TestRos2JointStateSubscriber(ROS2TestCase):
         from sensor_msgs.msg import JointState
 
         ros2_publisher = None
-        ros2_node = rclpy.create_node("isaac_sim_test_joint_state_sub")
-        ros2_publisher = ros2_node.create_publisher(JointState, "joint_command", 10)
+        ros2_node = self.create_node("isaac_sim_test_joint_state_sub")
+        ros2_publisher = self.create_publisher(ros2_node, JointState, "joint_command", 10)
 
         test_position = [45 * PI / 180.0, 0.2, -120 * PI / 180.0]
         test_velocity = [5 * PI / 180.0, 0.1, -2.5 * PI / 180.0]
@@ -520,3 +521,6 @@ class TestRos2JointStateSubscriber(ROS2TestCase):
         self.assertAlmostEqual(joint_velocity_received[0], 0.5, delta=1e-2)
         self.assertAlmostEqual(joint_velocity_received[2], -2.5, delta=1e-2)
         self.assertAlmostEqual(joint_velocity_received[1], 0, delta=1e-2)
+
+        ros2_node.destroy_publisher(ros2_publisher)
+        ros2_node.destroy_node()

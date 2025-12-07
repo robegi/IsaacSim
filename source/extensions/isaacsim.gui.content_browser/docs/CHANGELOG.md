@@ -1,4 +1,17 @@
 # Changelog
+
+## [0.1.11] - 2025-10-10
+### Changed
+- Update assets path to production
+
+## [0.1.10] - 2025-09-05
+### Changed
+- Update assets path to staging
+
+## [0.1.9] - 2025-07-25
+### Changed
+- Update assets path to production
+
 ## [0.1.8] - 2025-05-22
 ### Changed
 - Update copyright and license to apache v2.0

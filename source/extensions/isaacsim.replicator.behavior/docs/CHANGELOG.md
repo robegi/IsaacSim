@@ -1,4 +1,23 @@
 # Changelog
+## [1.1.16] - 2025-09-16
+### Fixed
+- Added kit update after timeline.stop to fix flaky test due to stage loading status
+
+## [1.1.15] - 2025-09-15
+### Changed
+- switched to isaacsim.test.utils for golden image comparison in tests
+
+## [1.1.14] - 2025-07-17
+### Changed
+- Updated windows golden images
+
+## [1.1.13] - 2025-07-11
+### Fixed
+- Texture randomizer uses unique names for materials (WAR for ISIM-4054)
+
+### Changed
+- Update sdg pipeline golden images
+
 ## [1.1.12] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 1.1.11)

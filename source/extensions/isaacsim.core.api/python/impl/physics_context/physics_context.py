@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 
 import carb
 import omni
+import omni.kit.app
 from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.core.utils.carb import get_carb_setting, set_carb_setting
 from isaacsim.core.utils.constants import AXES_INDICES
@@ -201,7 +202,8 @@ class PhysicsContext(object):
 
         if physics_dt is not None:
             self.set_physics_dt(dt=physics_dt)
-        return
+
+        self._physx_fabric_interface = None
 
     @property
     def prim_path(self):
@@ -558,10 +560,17 @@ class PhysicsContext(object):
             get_carb_setting(self._carb_settings, "/physics/outputVelocitiesLocalSpace"),
         )
 
-    def _step(self, current_time: float) -> None:
+    def _step(self, current_time: float, update_fabric: bool = False) -> None:
         self._physx_sim_interface.simulate(self.get_physics_dt(), current_time)
         self._physx_sim_interface.fetch_results()
-        return
+        if update_fabric:
+            if self._physx_fabric_interface is None:
+                if omni.kit.app.get_app().get_extension_manager().is_extension_enabled("omni.physx.fabric"):
+                    from omni.physxfabric import get_physx_fabric_interface
+
+                    self._physx_fabric_interface = get_physx_fabric_interface()
+            else:
+                self._physx_fabric_interface.update(current_time, self.get_physics_dt())
 
     def set_invert_collision_group_filter(self, invert_collision_group_filter: bool) -> None:
         """[summary]
@@ -1042,3 +1051,41 @@ class PhysicsContext(object):
         if not is_prim_path_valid(self._prim_path):
             raise Exception("The Physics Context's physics scene path is invalid, you need to reinit Physics Context")
         return self._physx_scene_api.GetGpuCollisionStackSizeAttr().Get()
+
+    def set_solve_articulation_contact_last(self, solve_articulation_contact_last: bool) -> None:
+        """Sets the ``solveArticulationContactLast`` state in PhysX scene.
+
+        When enabled, the solver orders the articulation contact constraints and the articulation joint maximum
+        velocity constraints to be solved after all the other constraints.
+
+        Args:
+            solve_articulation_contact_last (bool): Whether to reorder the constraints to be solved last.
+
+        Raises:
+            Exception: The physics scene path is invalid.
+        """
+        if not is_prim_path_valid(self._prim_path):
+            raise Exception("The Physics Context's physics scene path is invalid, you need to reinit Physics Context")
+        attribute_name = "physxScene:solveArticulationContactLast"
+        attribute = self._physx_scene_api.GetPrim().GetAttribute(attribute_name)
+        if attribute.Get() is None:
+            attribute = self._physx_scene_api.GetPrim().CreateAttribute(attribute_name, Sdf.ValueTypeNames.Bool, False)
+        attribute.Set(solve_articulation_contact_last)
+
+    def get_solve_articulation_contact_last(self) -> bool:
+        """Retrieves the ``solveArticulationContactLast`` state in PhysX scene.
+
+        Raises:
+            Exception: The physics scene path is invalid.
+
+        Returns:
+            bool: Whether the articulation contact constraints and the articulation joint maximum velocity constraints
+            are ordered to be solved last.
+        """
+        if not is_prim_path_valid(self._prim_path):
+            raise Exception("The Physics Context's physics scene path is invalid, you need to reinit Physics Context")
+        attribute_name = "physxScene:solveArticulationContactLast"
+        attribute = self._physx_scene_api.GetPrim().GetAttribute(attribute_name)
+        if attribute.Get() is None:
+            attribute = self._physx_scene_api.GetPrim().CreateAttribute(attribute_name, Sdf.ValueTypeNames.Bool, False)
+        return attribute.Get()

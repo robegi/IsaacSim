@@ -14,20 +14,15 @@
 # limitations under the License.
 
 import asyncio
-import unittest
 
 import numpy as np
 import omni.kit.test
-import omni.replicator.core as rep
 import omni.timeline
 import omni.usd
 from isaacsim.core.api import World
-from isaacsim.core.api.objects import VisualCuboid
-from isaacsim.core.prims import SingleXFormPrim
 from isaacsim.core.utils.stage import create_new_stage_async, update_stage_async
 from isaacsim.sensors.rtx import LidarRtx
-from isaacsim.storage.native import get_assets_root_path_async
-from pxr import Gf, Sdf, Usd, UsdGeom
+from pxr import Gf, UsdGeom
 
 
 class TestLidarRtx(omni.kit.test.AsyncTestCase):
@@ -35,16 +30,16 @@ class TestLidarRtx(omni.kit.test.AsyncTestCase):
 
     # Class constants
     ALLOWED_ANNOTATORS = [
-        "GenericModelOutputLidarPointAccumulator",
         "IsaacComputeRTXLidarFlatScan",
         "IsaacExtractRTXSensorPointCloudNoAccumulator",
-        "IsaacExtractRTXSensorPointCloud",
+        "IsaacCreateRTXLidarScanBuffer",
+        "GenericModelOutput",
+        "StableIdMap",
     ]
 
     EXPECTED_FRAME_KEYS = [
         "rendering_time",
         "rendering_frame",
-        "point_cloud_data",
         "linear_depth_data",
         "intensities_data",
         "azimuth_range",
@@ -182,6 +177,51 @@ class TestLidarRtx(omni.kit.test.AsyncTestCase):
         with self.assertRaises(Exception):
             lidar = LidarRtx(prim_path=self.invalid_lidar_prim_path, name="invalid_lidar_instance")
 
+    async def test_constructor_preserves_existing_position(self):
+        """Test that constructor preserves existing prim position and orientation when not specified."""
+        # Set the lidar prim to position (5, 0, 0) and orientation (45 degrees around Z)
+        target_position = np.array([5.0, 0.0, 0.0])
+        target_orientation = np.array([0.0, 0.0, 0.383, 0.924])  # 45 degrees around Z
+
+        lidar_prim = self.stage.GetPrimAtPath(self.lidar_prim_path)
+        xform = UsdGeom.Xformable(lidar_prim)
+
+        # Set the translation
+        xform.AddTranslateOp().Set(Gf.Vec3d(target_position[0], target_position[1], target_position[2]))
+
+        # Set the orientation
+        target_quat = Gf.Quatf(
+            target_orientation[3], target_orientation[0], target_orientation[1], target_orientation[2]
+        )
+        xform.AddOrientOp().Set(target_quat)
+
+        # Construct LidarRtx object without specifying position or orientation
+        lidar = LidarRtx(prim_path=self.lidar_prim_path, name="position_preserve_test")
+
+        # Verify the prim is still at position (5, 0, 0)
+        world_transform = xform.ComputeLocalToWorldTransform(0)
+        actual_position = world_transform.ExtractTranslation()
+
+        np.testing.assert_array_almost_equal(
+            np.array([actual_position[0], actual_position[1], actual_position[2]]),
+            target_position,
+            decimal=5,
+            err_msg=f"Actual position {actual_position} does not match target position {target_position}",
+        )
+
+        # Verify the prim orientation is preserved
+        rotation = world_transform.ExtractRotationQuat()
+        actual_quat = np.array(
+            [rotation.GetImaginary()[0], rotation.GetImaginary()[1], rotation.GetImaginary()[2], rotation.GetReal()]
+        )
+
+        # Verify orientation matches what was set (allowing for quaternion sign differences)
+        self.assertTrue(
+            np.allclose(actual_quat, target_orientation, atol=1e-3)
+            or np.allclose(-actual_quat, target_orientation, atol=1e-3),
+            f"Actual quaternion {actual_quat} does not match target quaternion {target_orientation}",
+        )
+
     async def test_get_render_product_path(self):
         """Test get_render_product_path returns a valid path with correct prim type"""
         lidar = LidarRtx(prim_path=self.lidar_prim_path, name="render_path_test")
@@ -231,6 +271,36 @@ class TestLidarRtx(omni.kit.test.AsyncTestCase):
         # Verify all were removed
         annotators = lidar.get_annotators()
         self.assertEqual(len(annotators), 0)
+
+    async def test_annotator_kwarg_initialization(self):
+        """Test that annotators can be initialized with kwargs."""
+        lidar = LidarRtx(prim_path=self.lidar_prim_path, name="kwarg_test")
+
+        # Test IsaacCreateRTXLidarScanBuffer with specific kwargs
+        scan_buffer_kwargs = {
+            "outputIntensity": True,
+            "outputDistance": True,
+            "outputObjectId": False,
+            "outputVelocity": True,
+            "outputAzimuth": True,
+            "outputElevation": False,
+            "outputNormal": True,
+            "outputTimestamp": True,
+            "outputEmitterId": False,
+            "outputBeamId": True,
+            "outputMaterialId": True,
+        }
+
+        # Attach annotator with kwargs - this tests that kwargs are properly passed to initialize()
+        lidar.attach_annotator("IsaacCreateRTXLidarScanBuffer", **scan_buffer_kwargs)
+
+        # Test individual kwargs as well
+        lidar.detach_annotator("IsaacCreateRTXLidarScanBuffer")
+        lidar.attach_annotator("IsaacCreateRTXLidarScanBuffer", outputIntensity=True, outputDistance=True)
+
+        # Verify all annotators are attached
+        annotators = lidar.get_annotators()
+        self.assertIn("IsaacCreateRTXLidarScanBuffer", annotators)
 
     async def test_writer_methods(self):
         """Test get_writers, attach_writer, detach_writer, and detach_all_writers"""
@@ -378,7 +448,7 @@ class TestLidarRtx(omni.kit.test.AsyncTestCase):
                     self.assertNotEqual(len(current_frame[key]), 0, f"{key} list/array is empty")
 
         # Confirm data consistency between current_frame and annotator data
-        self.verify_point_cloud_data(current_frame)
+        # self.verify_point_cloud_data(current_frame)
         self.verify_flat_scan_data(current_frame)
 
         # Test the deprecated getter methods to ensure they're not returning None

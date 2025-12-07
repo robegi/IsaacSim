@@ -1,5 +1,29 @@
 # Changelog
 
+## [4.8.0] - 2025-09-23
+### Added
+- Expose PhysX scene attribute to reorder the articulation contact constraints to be solved last
+
+## [4.7.1] - 2025-08-28
+### Changed
+- Fixes and more logging for xform tests
+
+## [4.7.0] - 2025-08-27
+### Added
+- Add boolean flag to force the update of the physics data to fabric when performing a physics-only step
+
+## [4.6.12] - 2025-08-27
+### Fixed
+- Fix the broken documentation links
+
+## [4.6.11] - 2025-08-13
+### Changed
+- Update articulation view test case to check for joint indices and names when querying the measured joint reaction forces/torques
+
+## [4.6.10] - 2025-07-23
+### Fixed
+- Exclude test_world_poses_fabric from ETM
+
 ## [4.6.9] - 2025-07-09
 ### Changed
 - Reduce test runtime
@@ -446,7 +470,7 @@
 ### Fixed
 - Unit tests
 
-## [3.3.0] - 2023-12-1
+## [3.3.0] - 2023-12-01
 ### Changed
 - Add more articulation metadata for OM-116002
 - Fix contact reporter API schema preparation for OM-116001

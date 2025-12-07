@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.5.2] - 2025-10-02
+### Changed
+- Use cached physics views for PoseTree.h
+
+## [2.5.1] - 2025-08-27
+### Changed
+- Use the IFabricHierarchy cached transform (with explicit update call) and set it to be the default call in `computeWorldXformNoCache`
+
+## [2.5.0] - 2025-08-07
+### Changed
+- Use device-generic memory buffer implementation to enable tensor API processing on the GPU for PoseTree computation
+
+## [2.4.1] - 2025-07-28
+### Changed
+- Defaulting to non-FabricHierarchy usage in `computeWorldXformNoCache`
+
 ## [2.4.0] - 2025-07-10
 ### Added
 - Device-generic (CPU or CUDA device) memory buffer implementation

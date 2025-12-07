@@ -12,8 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Generate a [DOPE, CenterPose, YCBVideo] synthetic datasets
-"""
+"""Generate a [DOPE, CenterPose, YCBVideo] synthetic datasets"""
 
 import argparse
 import datetime
@@ -289,7 +288,7 @@ class RandomScenario(torch.utils.data.IterableDataset):
         # Collision box dimensions lower than 1.3 do not work properly
         collision_box_width = max(2 * config_data["MAX_DISTANCE"] * math.tan(theta_x), 1.3)
         collision_box_height = max(2 * config_data["MAX_DISTANCE"] * math.tan(theta_y), 1.3)
-        collision_box_depth = config_data["MAX_DISTANCE"] - config_data["MIN_DISTANCE"]
+        collision_box_depth = max(config_data["MAX_DISTANCE"] - config_data["MIN_DISTANCE"], 0.1)
 
         collision_box_path = "/World/collision_box"
         collision_box_name = "collision_box"

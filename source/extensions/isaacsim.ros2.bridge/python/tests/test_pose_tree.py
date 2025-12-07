@@ -26,7 +26,6 @@ from isaacsim.core.nodes.scripts.utils import set_target_prims
 from isaacsim.core.prims import XFormPrim
 from isaacsim.core.utils.physics import simulate_async
 from isaacsim.core.utils.stage import add_reference_to_stage, open_stage_async
-from isaacsim.storage.native import get_assets_root_path_async
 from pxr import Sdf, UsdGeom
 from usd.schema.isaac import robot_schema
 
@@ -51,7 +50,7 @@ class TestRos2PoseTree(ROS2TestCase):
         import rclpy
         from tf2_msgs.msg import TFMessage
 
-        await add_franka()
+        await add_franka(self._assets_root_path)
         await add_cube("/cube", 0.75, (2.00, 0, 0.75))
 
         self._tf_data = None
@@ -60,8 +59,8 @@ class TestRos2PoseTree(ROS2TestCase):
         def tf_callback(data: TFMessage):
             self._tf_data = data
 
-        node = rclpy.create_node("tf_tester")
-        tf_sub = node.create_subscription(TFMessage, "/tf_test", tf_callback, get_qos_profile())
+        node = self.create_node("tf_tester")
+        tf_sub = self.create_subscription(node, TFMessage, "/tf_test", tf_callback, get_qos_profile())
 
         try:
             og.Controller.edit(
@@ -135,13 +134,14 @@ class TestRos2PoseTree(ROS2TestCase):
 
         self._timeline.stop()
         spin()
+
         pass
 
     async def test_duplicate_names_tree(self):
         import rclpy
         from tf2_msgs.msg import TFMessage
 
-        await add_franka()
+        await add_franka(self._assets_root_path)
 
         await add_cube("/cube0/cube", 0.75, (2.00, 0, 0.75))
         await add_cube("/cube1/cube", 0.75, (3.00, 0, 0.75))
@@ -161,8 +161,8 @@ class TestRos2PoseTree(ROS2TestCase):
         def tf_callback(data: TFMessage):
             self._tf_data = data
 
-        node = rclpy.create_node("tf_tester")
-        tf_sub = node.create_subscription(TFMessage, "/tf_test", tf_callback, 10)
+        node = self.create_node("tf_tester")
+        tf_sub = self.create_subscription(node, TFMessage, "/tf_test", tf_callback, 10)
 
         try:
             og.Controller.edit(
@@ -231,6 +231,7 @@ class TestRos2PoseTree(ROS2TestCase):
 
         self._timeline.stop()
         spin()
+
         pass
 
     async def test_frame_name_override(self):
@@ -242,12 +243,8 @@ class TestRos2PoseTree(ROS2TestCase):
         dome_light.CreateAttribute("inputs:intensity", Sdf.ValueTypeNames.Float).Set(500.0)
 
         # Create two Franka robots at different paths
-        assets_root_path = await get_assets_root_path_async()
-        if assets_root_path is None:
-            carb.log_error("Could not find Isaac Sim assets folder")
-            return
 
-        asset_path = assets_root_path + "/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd"
+        asset_path = self._assets_root_path + "/Isaac/Robots/FrankaRobotics/FrankaPanda/franka.usd"
         add_reference_to_stage(usd_path=asset_path, prim_path="/World/panda1")
         add_reference_to_stage(usd_path=asset_path, prim_path="/World/panda2")
 
@@ -272,8 +269,8 @@ class TestRos2PoseTree(ROS2TestCase):
         def tf_callback(data: TFMessage):
             self._tf_data = data
 
-        node = rclpy.create_node("tf_tester")
-        self._tf_sub = node.create_subscription(TFMessage, "/tf_test", tf_callback, 10)
+        node = self.create_node("tf_tester")
+        self._tf_sub = self.create_subscription(node, TFMessage, "/tf_test", tf_callback, 10)
 
         try:
             og.Controller.edit(

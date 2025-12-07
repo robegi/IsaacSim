@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate synthetic datasets using infinigen (https://infinigen.org/) generated environments.
-"""
+"""Generate synthetic datasets using infinigen (https://infinigen.org/) generated environments."""
 
 
 import argparse
@@ -202,6 +201,9 @@ def run_sdg(config):
 
     # Disable UJITSO cooking ([Warning] [omni.ujitso] UJITSO : Build storage validation failed)
     carb.settings.get_settings().set("/physics/cooking/ujitsoCollisionCooking", False)
+
+    # Set DLSS to Quality mode (2) for best SDG results , options: 0 (Performance), 1 (Balanced), 2 (Quality), 3 (Auto)
+    carb.settings.get_settings().set("rtx/post/dlss/execMode", 2)
 
     # Debug mode (hide ceiling, move viewport camera to the top-down view)
     debug_mode = config.get("debug_mode", False)

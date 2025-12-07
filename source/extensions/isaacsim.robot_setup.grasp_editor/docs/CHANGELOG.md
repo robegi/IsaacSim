@@ -1,4 +1,12 @@
 # Changelog
+## [2.0.20] - 2025-10-08
+### Fixed
+- Fix issue where rigid body was re-scaled
+
+## [2.0.19] - 2025-08-26
+### Fixed
+- Fixed tests for updated gripper asset
+
 ## [2.0.18] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 2.0.17)

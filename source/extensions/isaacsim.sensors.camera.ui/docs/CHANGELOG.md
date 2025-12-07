@@ -1,4 +1,16 @@
 # Changelog
+## [0.2.2] - 2025-09-27
+### Added
+- Restored SICK Inspector83x
+
+## [0.2.1] - 2025-08-04
+### Fixed
+- Asset path for ZED X sensor
+
+## [0.2.0] - 2025-07-17
+### Changed
+- Depth sensors now added using SingleViewDepthSensorAsset API
+
 ## [0.1.16] - 2025-07-07
 ### Fixed
 - Correctly enable omni.kit.loop-isaac in test dependency (fixes issue from 0.1.15)

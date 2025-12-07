@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Literal, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 import carb
 import numpy as np
@@ -21,7 +21,7 @@ import omni
 import omni.graph.core as og
 import omni.replicator.core as rep
 from isaacsim.core.api.sensors.base_sensor import BaseSensor
-from isaacsim.core.nodes.bindings import _isaacsim_core_nodes
+from isaacsim.core.simulation_manager import _simulation_manager
 from isaacsim.core.utils.prims import get_prim_at_path, get_prim_type_name, is_prim_path_valid
 from pxr import Gf
 
@@ -62,7 +62,7 @@ class LidarRtx(BaseSensor):
         name: str = "lidar_rtx",
         position: Optional[np.ndarray] = None,
         translation: Optional[np.ndarray] = None,
-        orientation: Optional[np.ndarray] = np.array([1.0, 0.0, 0.0, 0.0]),
+        orientation: Optional[np.ndarray] = None,
         config_file_name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -107,8 +107,6 @@ class LidarRtx(BaseSensor):
         self._render_product = None
         self._render_product_path = None
 
-        if position is None and translation is None:
-            position = np.array([0.0, 0.0, 0.0])
         if is_prim_path_valid(prim_path):
             if get_prim_type_name(prim_path) == "Camera":
                 carb.log_warn(
@@ -119,12 +117,15 @@ class LidarRtx(BaseSensor):
             elif not get_prim_at_path(prim_path).HasAPI("OmniSensorGenericLidarCoreAPI"):
                 raise Exception(f"Prim at {prim_path} does not have the OmniSensorGenericLidarCoreAPI schema.")
             carb.log_warn("Using existing RTX Lidar prim at path {}".format(prim_path))
+            sensor = get_prim_at_path(prim_path)
+            for key, value in kwargs.items():
+                if sensor.HasAttribute(key):
+                    sensor.GetAttribute(key).Set(value)
+                else:
+                    carb.log_warn(f"Sensor at {prim_path} does not have attribute {key}")
         else:
-            p = position if translation is None else translation
             _, sensor = omni.kit.commands.execute(
                 "IsaacSensorCreateRtxLidar",
-                translation=Gf.Vec3d(p[0], p[1], p[2]),
-                orientation=Gf.Quatd(orientation[0], orientation[1], orientation[2], orientation[3]),
                 path=prim_path,
                 parent=None,
                 config=config_file_name,
@@ -141,14 +142,8 @@ class LidarRtx(BaseSensor):
         self._render_product = rep.create.render_product(prim_path, resolution=(128, 128))
         self._render_product_path = self._render_product.path
 
-        # Initialize core nodes interface
-        self._core_nodes_interface = _isaacsim_core_nodes.acquire_interface()
-        if position is not None and orientation is not None:
-            self.set_world_pose(position=position, orientation=orientation)
-        elif translation is not None and orientation is not None:
-            self.set_local_pose(translation=translation, orientation=orientation)
-        elif orientation is not None:
-            self.set_local_pose(orientation=orientation)
+        # Initialize simulation manager interface
+        self._simulation_manager_interface = _simulation_manager.acquire_simulation_manager_interface()
 
         # Define data dictionary for current frame
         self._current_frame = dict()
@@ -191,26 +186,31 @@ class LidarRtx(BaseSensor):
     def attach_annotator(
         self,
         annotator_name: Literal[
-            "GenericModelOutputLidarPointAccumulator",
             "IsaacComputeRTXLidarFlatScan",
             "IsaacExtractRTXSensorPointCloudNoAccumulator",
-            "IsaacExtractRTXSensorPointCloud",
+            "IsaacCreateRTXLidarScanBuffer",
+            "StableIdMap",
+            "GenericModelOutput",
         ],
+        **kwargs,
     ) -> None:
         """Attach an annotator to the Lidar sensor.
 
         Args:
             param annotator_name (Literal): Name of the annotator to attach. Must be one of:
-                - "GenericModelOutputLidarPointAccumulator"
                 - "IsaacComputeRTXLidarFlatScan"
                 - "IsaacExtractRTXSensorPointCloudNoAccumulator"
-                - "IsaacExtractRTXSensorPointCloud"
+                - "IsaacCreateRTXLidarScanBuffer"
+                - "StableIdMap"
+                - "GenericModelOutput"
+            **kwargs: Additional arguments to pass to the annotator on initialization.
         """
         if annotator_name in self._annotators:
             carb.log_warn(f"Annotator {annotator_name} already attached to {self._render_product_path}")
             return
 
         annotator = rep.AnnotatorRegistry.get_annotator(annotator_name)
+        annotator.initialize(**kwargs)
         annotator.attach([self._render_product_path])
         self._annotators[annotator_name] = annotator
         return
@@ -243,16 +243,18 @@ class LidarRtx(BaseSensor):
         """
         return self._writers
 
-    def attach_writer(self, writer_name: str) -> None:
+    def attach_writer(self, writer_name: str, **kwargs) -> None:
         """Attach a writer to the Lidar sensor.
 
         Args:
             param writer_name (str): Name of the writer to attach.
+            **kwargs: Additional arguments to pass to the writer on initialization.
         """
         if writer_name in self._writers:
             carb.log_warn(f"Writer {writer_name} already attached to {self._render_product_path}")
             return
         writer = rep.WriterRegistry.get(writer_name)
+        writer.initialize(**kwargs)
         writer.attach([self._render_product_path])
         self._writers[writer_name] = writer
 
@@ -279,18 +281,18 @@ class LidarRtx(BaseSensor):
     def _create_point_cloud_graph_node(self):
         """Create a point cloud graph node for the Lidar sensor.
 
-        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacExtractRTXSensorPointCloud') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacExtractRTXSensorPointCloudNoAccumulator') instead.
         """
         carb.log_warn(
             "LidarRtx._create_point_cloud_graph_node is deprecated as of Isaac Sim 5.0 and will be removed in a future release. Use attach_annotator instead."
         )
-        self.attach_annotator("IsaacExtractRTXSensorPointCloud")
+        self.attach_annotator("IsaacExtractRTXSensorPointCloudNoAccumulator")
         return
 
     def _create_flat_scan_graph_node(self):
         """Create a flat scan graph node for the Lidar sensor.
 
-        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "LidarRtx._create_flat_scan_graph_node is deprecated as of Isaac Sim 5.0 and will be removed in a future release. Use attach_annotator instead."
@@ -394,16 +396,18 @@ class LidarRtx(BaseSensor):
             .get(),
         )
 
-        self._current_frame["rendering_time"] = self._core_nodes_interface.get_sim_time_at_time(
-            self._current_frame["rendering_frame"]
-        )
+        if self._current_frame["rendering_frame"][1] == 0:
+            carb.log_warn(
+                f"Reference time is {self._current_frame['rendering_frame'][0]}/{self._current_frame['rendering_frame'][1]}, cannot get simulation time on this frame."
+            )
+        else:
+            self._current_frame["rendering_time"] = self._simulation_manager_interface.get_simulation_time_at_time(
+                self._current_frame["rendering_frame"]
+            )
+
         for annotator_name, annotator in self._annotators.items():
             self._current_frame[annotator_name] = annotator.get_data()
 
-        # Handle deprecated attributes
-        if "IsaacExtractRTXSensorPointCloud" in self._annotators:
-            point_cloud_data = self._annotators["IsaacExtractRTXSensorPointCloud"].get_data()
-            self._current_frame["point_cloud_data"] = point_cloud_data["data"]
         if "IsaacComputeRTXLidarFlatScan" in self._annotators:
             flat_scan_data = self._annotators["IsaacComputeRTXLidarFlatScan"].get_data()
             self._current_frame["linear_depth_data"] = flat_scan_data["linearDepthData"]
@@ -530,56 +534,56 @@ class LidarRtx(BaseSensor):
     def add_point_cloud_data_to_frame(self):
         """Add point cloud data to the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "add_point_cloud_data_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically added to the current frame if the corresponding annotator is attached."
         )
-        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def add_linear_depth_data_to_frame(self):
         """Add linear depth data to the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "add_linear_depth_data_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically added to the current frame if the corresponding annotator is attached."
         )
-        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def add_intensities_data_to_frame(self):
         """Add intensities data to the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "add_intensities_data_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically added to the current frame if the corresponding annotator is attached."
         )
-        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def add_azimuth_range_to_frame(self):
         """Add azimuth range data to the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "add_azimuth_range_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically added to the current frame if the corresponding annotator is attached."
         )
-        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def add_horizontal_resolution_to_frame(self):
         """Add horizontal resolution data to the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "add_horizontal_resolution_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically added to the current frame if the corresponding annotator is attached."
         )
-        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use attach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def add_range_data_to_frame(self):
@@ -615,56 +619,56 @@ class LidarRtx(BaseSensor):
     def remove_point_cloud_data_to_frame(self):
         """Remove point cloud data from the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "remove_point_cloud_data_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically removed from the current frame if the corresponding annotator is detached."
         )
-        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def remove_linear_depth_data_to_frame(self):
         """Remove linear depth data from the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "remove_linear_depth_data_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically removed from the current frame if the corresponding annotator is detached."
         )
-        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def remove_intensities_data_to_frame(self):
         """Remove intensities data from the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "remove_intensities_data_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically removed from the current frame if the corresponding annotator is detached."
         )
-        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def remove_azimuth_range_to_frame(self):
         """Remove azimuth range data from the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "remove_azimuth_range_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically removed from the current frame if the corresponding annotator is detached."
         )
-        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def remove_horizontal_resolution_to_frame(self):
         """Remove horizontal resolution data from the current frame.
 
-        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.
+        This method is deprecated as of Isaac Sim 5.0. Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.
         """
         carb.log_warn(
             "remove_horizontal_resolution_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release. This attribute is now automatically removed from the current frame if the corresponding annotator is detached."
         )
-        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScanSimulationTime') instead.")
+        carb.log_warn("Use detach_annotator('IsaacComputeRTXLidarFlatScan') instead.")
         return
 
     def remove_range_data_to_frame(self):
@@ -696,3 +700,39 @@ class LidarRtx(BaseSensor):
             "remove_elevation_data_to_frame is deprecated as of Isaac Sim 5.0 and will be removed in a future release."
         )
         return
+
+    @staticmethod
+    def decode_stable_id_mapping(stable_id_mapping_raw: bytes):
+        """Decode the StableIdMap buffer into a dictionary of stable IDs to labels.
+        The buffer is a sequence of 6-byte entries, each containing:
+        - 4 bytes for the stable ID (uint32)
+        - 1 byte for the label length (uint8)
+        - 1 byte for the label offset (uint8)
+        The label is a UTF-8 string of the specified length, starting at the offset.
+        """
+        num_entries = int.from_bytes(stable_id_mapping_raw[-4:], byteorder="little")
+        output_data_type = np.dtype([("stable_id", "<u4", (4)), ("label_length", "<u4"), ("label_offset", "<u4")])
+        entry_data_length = num_entries * output_data_type.itemsize
+        entries = np.frombuffer(stable_id_mapping_raw[:entry_data_length], "<u4").reshape(-1, 6)
+
+        mapping = {}
+        for entry in entries:
+            entry_id = int.from_bytes(entry[:4].tobytes(), byteorder="little")
+            mapping[entry_id] = stable_id_mapping_raw[entry[5] : entry[5] + entry[4]].decode("utf8").rstrip()
+        return mapping
+
+    @staticmethod
+    def get_object_ids(obj_ids: np.ndarray) -> List[int]:
+        """Get Object IDs from the GenericModelOutput object ID buffer.
+        The buffer is an array of dtype uint8 that must be converted
+        to a list of dtype uint128 (stride 16). Each uint128 is a unique stable
+        ID for a prim in the scene, which can be used to look up the prim
+        path in the map provided by the StableIdMap annotator (see above).
+
+        Args:
+            obj_ids (np.ndarray): The GenericModelOutput object ID buffer.
+
+        Returns:
+            List[int]: The object IDs as a list of uint128.
+        """
+        return [int.from_bytes(item, byteorder="little") for item in obj_ids.view(np.dtype("<U4"))]
